@@ -39,13 +39,58 @@ public class GetSummaryUseCase
             .GroupBy(p => p.MemberId)
             .ToDictionary(g => g.Key, g => g.Sum(p => p.AmountPaid));
 
+        // Build each member's real fair share from the actual persisted splits — this is
+        // what makes per-expense participant exclusion affect balances, since a member who
+        // was excluded from an expense simply has no ExpenseSplit row for it.
+        var sharePerMember = allExpenses
+            .SelectMany(e => e.Splits)
+            .GroupBy(s => s.MemberId)
+            .ToDictionary(g => g.Key, g => g.Sum(s => s.ShareAmount));
+
+        var memberNames = allMembers.ToDictionary(m => m.Id, m => m.GuestName ?? m.User?.Name ?? "Unknown");
+
         var memberInputs = allMembers.Select(m => new MemberInput(
             m.Id,
-            m.GuestName ?? m.User?.Name ?? "Unknown",
+            memberNames[m.Id],
             m.BudgetCap,
-            paidPerMember.GetValueOrDefault(m.Id, 0m))).ToList();
+            paidPerMember.GetValueOrDefault(m.Id, 0m),
+            sharePerMember.GetValueOrDefault(m.Id, 0m))).ToList();
 
-        var result = SplitCalculator.Calculate(memberInputs, totalSpent);
+        var result = SplitCalculator.Calculate(memberInputs);
+
+        // Detailed view: settlements traced back to each individual expense (no cross-expense
+        // netting), so every pairing shown is between people who actually shared that expense —
+        // unlike the group-wide `result.Settlements` above, which may pair up two people who
+        // never split anything together, purely to minimize the total number of transactions.
+        var detailedSettlements = new List<ExpenseSettlementGroupResponse>();
+        foreach (var expense in allExpenses)
+        {
+            var paidLookup  = expense.Payers.GroupBy(p => p.MemberId).ToDictionary(g => g.Key, g => g.Sum(p => p.AmountPaid));
+            var shareLookup = expense.Splits.ToDictionary(s => s.MemberId, s => s.ShareAmount);
+
+            var expenseMemberIds = expense.Payers.Select(p => p.MemberId)
+                .Concat(expense.Splits.Select(s => s.MemberId))
+                .Distinct();
+
+            var expenseInputs = expenseMemberIds.Select(id => new ExpenseMemberInput(
+                id,
+                memberNames.GetValueOrDefault(id, "Unknown"),
+                paidLookup.GetValueOrDefault(id, 0m),
+                shareLookup.GetValueOrDefault(id, 0m))).ToList();
+
+            var expenseSettlements = SplitCalculator.CalculateExpenseSettlements(expenseInputs);
+            if (expenseSettlements.Count == 0) continue;
+
+            detailedSettlements.Add(new ExpenseSettlementGroupResponse(
+                expense.Id.ToString(),
+                expense.Title,
+                expenseSettlements.Select(s => new SettlementResponse(
+                    s.FromMemberId.ToString(),
+                    s.FromName,
+                    s.ToMemberId.ToString(),
+                    s.ToName,
+                    s.Amount)).ToList()));
+        }
 
         return new SummaryResponse(
             totalSpent,
@@ -59,6 +104,7 @@ public class GetSummaryUseCase
                 s.FromName,
                 s.ToMemberId.ToString(),
                 s.ToName,
-                s.Amount)).ToList());
+                s.Amount)).ToList(),
+            detailedSettlements);
     }
 }

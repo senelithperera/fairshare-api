@@ -23,6 +23,20 @@ public interface IExpenseRepository
     /// <summary>Removes all <see cref="ExpenseSplit"/> records for an expense (used on update).</summary>
     void RemoveSplits(IEnumerable<ExpenseSplit> splits);
 
+    /// <summary>
+    /// Explicitly tracks newly built <see cref="ExpensePayer"/> records as Added (used on
+    /// update, when replacing an expense's payers rather than reassigning the navigation
+    /// collection alone).
+    /// </summary>
+    void AddPayers(IEnumerable<ExpensePayer> payers);
+
+    /// <summary>
+    /// Explicitly tracks newly built <see cref="ExpenseSplit"/> records as Added (used on
+    /// update, when replacing an expense's splits rather than reassigning the navigation
+    /// collection alone).
+    /// </summary>
+    void AddSplits(IEnumerable<ExpenseSplit> splits);
+
     /// <summary>Commits all pending changes to the database.</summary>
     Task SaveChangesAsync(CancellationToken ct = default);
 }

@@ -37,6 +37,12 @@ public class UpdateExpenseUseCase
 
         var allMembers = await _members.GetByGroupIdAsync(group.Id, ct);
 
+        // Null means "keep the expense's current participants" (mirrors the partial-update
+        // convention used for the other optional fields below).
+        var participantIds = request.ParticipantMemberIds
+            ?? expense.Splits.Select(s => s.MemberId.ToString()).ToList();
+        var participants = ResolveParticipants(participantIds, allMembers);
+
         // Apply patches
         if (request.Title is not null)
             expense.Title = request.Title.Trim();
@@ -47,23 +53,42 @@ public class UpdateExpenseUseCase
         if (request.Payers is not null)
         {
             _expenses.RemovePayers(expense.Payers.ToList());
-            expense.Payers = request.Payers.Select(p => new ExpensePayer
+            var newPayers = request.Payers.Select(p => new ExpensePayer
             {
                 Id         = Guid.NewGuid(),
                 ExpenseId  = expense.Id,
                 MemberId   = Guid.Parse(p.MemberId),
                 AmountPaid = p.AmountPaid
             }).ToList();
+            // Explicitly track the new rows as Added: `expense` is already tracked, and simply
+            // reassigning its Payers navigation to a list of brand-new entities can leave EF's
+            // change tracker treating them as Modified (since their client-generated GUID keys
+            // are never "empty"), producing UPDATE statements for rows that don't exist yet.
+            _expenses.AddPayers(newPayers);
+            expense.Payers = newPayers;
         }
 
-        // Recalculate splits
+        // Recalculate splits — same explicit-tracking reasoning as the payers above.
         _expenses.RemoveSplits(expense.Splits.ToList());
-        expense.Splits = BuildExpenseSplits(expense.Id, allMembers, expense.TotalAmount);
+        var newSplits = BuildExpenseSplits(expense.Id, participants, expense.TotalAmount);
+        _expenses.AddSplits(newSplits);
+        expense.Splits = newSplits;
 
-        _expenses.Update(expense);
         await _expenses.SaveChangesAsync(ct);
 
         return MapToResponse(expense, allMembers);
+    }
+
+    /// <summary>
+    /// Resolves which members participate in the split, falling back to everyone in the
+    /// group if the supplied ids don't match any current member.
+    /// </summary>
+    private static IReadOnlyList<GroupMember> ResolveParticipants(
+        IReadOnlyList<string> participantMemberIds,
+        IReadOnlyList<GroupMember> allMembers)
+    {
+        var filtered = allMembers.Where(m => participantMemberIds.Contains(m.Id.ToString())).ToList();
+        return filtered.Count > 0 ? filtered : allMembers;
     }
 
     private static List<ExpenseSplit> BuildExpenseSplits(

@@ -32,7 +32,11 @@ public record ExpenseSummaryResponse(
     string Title,
     decimal TotalAmount,
     string CreatedAt,
-    IReadOnlyList<PayerResponse> Payers);
+    IReadOnlyList<PayerResponse> Payers,
+    IReadOnlyList<SplitResponse> Splits);
 
 /// <summary>Payer entry nested inside an expense summary.</summary>
 public record PayerResponse(string MemberId, string DisplayName, decimal AmountPaid);
+
+/// <summary>Split entry nested inside an expense summary — who participates and their share.</summary>
+public record SplitResponse(string MemberId, string DisplayName, decimal ShareAmount);

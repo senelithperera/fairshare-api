@@ -41,6 +41,12 @@ public class ExpenseRepository : IExpenseRepository
     public void RemoveSplits(IEnumerable<ExpenseSplit> splits) => _db.ExpenseSplits.RemoveRange(splits);
 
     /// <inheritdoc/>
+    public void AddPayers(IEnumerable<ExpensePayer> payers) => _db.ExpensePayers.AddRange(payers);
+
+    /// <inheritdoc/>
+    public void AddSplits(IEnumerable<ExpenseSplit> splits) => _db.ExpenseSplits.AddRange(splits);
+
+    /// <inheritdoc/>
     public async Task SaveChangesAsync(CancellationToken ct = default)
         => await _db.SaveChangesAsync(ct);
 }

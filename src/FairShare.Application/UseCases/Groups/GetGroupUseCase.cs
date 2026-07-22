@@ -46,5 +46,9 @@ public class GetGroupUseCase
                 e.Payers.Select(p => new PayerResponse(
                     p.MemberId.ToString(),
                     p.Member.GuestName ?? p.Member.User?.Name ?? "Unknown",
-                    p.AmountPaid)).ToList())).ToList());
+                    p.AmountPaid)).ToList(),
+                e.Splits.Select(s => new SplitResponse(
+                    s.MemberId.ToString(),
+                    s.Member.GuestName ?? s.Member.User?.Name ?? "Unknown",
+                    s.ShareAmount)).ToList())).ToList());
 }

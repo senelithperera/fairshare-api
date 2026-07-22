@@ -4,7 +4,8 @@ namespace FairShare.Application.DTOs.Expenses;
 public record CreateExpenseRequest(
     string Title,
     decimal TotalAmount,
-    IReadOnlyList<PayerRequest> Payers);
+    IReadOnlyList<PayerRequest> Payers,
+    IReadOnlyList<string>? ParticipantMemberIds = null);
 
 /// <summary>One payer entry inside a create/update expense request.</summary>
 public record PayerRequest(string MemberId, decimal AmountPaid);

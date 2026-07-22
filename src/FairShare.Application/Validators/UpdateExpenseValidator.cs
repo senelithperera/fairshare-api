@@ -34,5 +34,9 @@ public class UpdateExpenseValidator : AbstractValidator<UpdateExpenseRequest>
             payer.RuleFor(p => p.AmountPaid)
                 .GreaterThan(0).WithMessage("Amount paid must be greater than 0.");
         }).When(x => x.Payers is not null);
+
+        RuleFor(x => x.ParticipantMemberIds)
+            .NotEmpty().WithMessage("At least one participant is required.")
+            .When(x => x.ParticipantMemberIds is not null);
     }
 }

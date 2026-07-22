@@ -39,6 +39,7 @@ public class CreateExpenseUseCase
         if (group is null) return null;
 
         var allMembers = await _members.GetByGroupIdAsync(group.Id, ct);
+        var participants = ResolveParticipants(request.ParticipantMemberIds, allMembers);
 
         var payers = request.Payers.Select(p => new ExpensePayer
         {
@@ -57,7 +58,7 @@ public class CreateExpenseUseCase
             CreatedAt         = DateTime.UtcNow,
             IsDeleted         = false,
             Payers            = payers,
-            Splits            = BuildExpenseSplits(Guid.Empty, allMembers, request.TotalAmount)
+            Splits            = BuildExpenseSplits(Guid.Empty, participants, request.TotalAmount)
         };
 
         // Fix up the ExpenseId on splits now that we have it
@@ -70,6 +71,20 @@ public class CreateExpenseUseCase
         _logger.LogInformation("Created expense {ExpenseId} in group {GroupId}", expense.Id, group.Id);
 
         return MapToResponse(expense, allMembers);
+    }
+
+    /// <summary>
+    /// Resolves which members participate in the split. Null means "everyone in the group".
+    /// Falls back to everyone if the supplied ids don't match any current member.
+    /// </summary>
+    private static IReadOnlyList<GroupMember> ResolveParticipants(
+        IReadOnlyList<string>? participantMemberIds,
+        IReadOnlyList<GroupMember> allMembers)
+    {
+        if (participantMemberIds is null) return allMembers;
+
+        var filtered = allMembers.Where(m => participantMemberIds.Contains(m.Id.ToString())).ToList();
+        return filtered.Count > 0 ? filtered : allMembers;
     }
 
     private static List<ExpenseSplit> BuildExpenseSplits(

@@ -4,4 +4,5 @@ namespace FairShare.Application.DTOs.Expenses;
 public record UpdateExpenseRequest(
     string? Title,
     decimal? TotalAmount,
-    IReadOnlyList<PayerRequest>? Payers);
+    IReadOnlyList<PayerRequest>? Payers,
+    IReadOnlyList<string>? ParticipantMemberIds = null);

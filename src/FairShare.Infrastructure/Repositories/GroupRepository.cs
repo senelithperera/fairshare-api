@@ -18,7 +18,7 @@ public class GroupRepository : IGroupRepository
             .Include(g => g.Members).ThenInclude(m => m.User)
             .Include(g => g.Members).ThenInclude(m => m.PayerRecords)
             .Include(g => g.Expenses).ThenInclude(e => e.Payers).ThenInclude(p => p.Member)
-            .Include(g => g.Expenses).ThenInclude(e => e.Splits)
+            .Include(g => g.Expenses).ThenInclude(e => e.Splits).ThenInclude(s => s.Member)
             .IgnoreQueryFilters()                     // we need archived check on the caller side if needed
             .FirstOrDefaultAsync(g => g.GuestToken == guestToken && !g.IsArchived, ct);
 
