@@ -13,7 +13,8 @@ public class CreateExpenseValidator : AbstractValidator<CreateExpenseRequest>
             .MaximumLength(150).WithMessage("Title must not exceed 150 characters.");
 
         RuleFor(x => x.TotalAmount)
-            .GreaterThan(0).WithMessage("Total amount must be greater than 0.");
+            .GreaterThan(0).WithMessage("Total amount must be greater than 0.")
+            .PrecisionScale(18, 2, true).WithMessage("Total amount can have at most 2 decimal places.");
 
         RuleFor(x => x.Payers)
             .NotEmpty().WithMessage("At least one payer is required.");
@@ -29,7 +30,8 @@ public class CreateExpenseValidator : AbstractValidator<CreateExpenseRequest>
             payer.RuleFor(p => p.MemberId)
                 .NotEmpty().WithMessage("Payer member ID is required.");
             payer.RuleFor(p => p.AmountPaid)
-                .GreaterThan(0).WithMessage("Amount paid must be greater than 0.");
+                .GreaterThan(0).WithMessage("Amount paid must be greater than 0.")
+                .PrecisionScale(18, 2, true).WithMessage("Amount paid can have at most 2 decimal places.");
         });
 
         RuleFor(x => x.ParticipantMemberIds)
