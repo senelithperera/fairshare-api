@@ -23,20 +23,25 @@ public class UpdateExpenseUseCase
     }
 
     /// <summary>Executes the use case.</summary>
-    /// <returns>Updated expense response, or null when the group or expense is not found.</returns>
-    public async Task<ExpenseResponse?> ExecuteAsync(
+    /// <returns>The updated expense, or NotFound / PayerNotInGroup.</returns>
+    public async Task<ExpenseResult> ExecuteAsync(
         Guid guestToken,
         Guid expenseId,
         UpdateExpenseRequest request,
         CancellationToken ct = default)
     {
         var group = await _groups.GetByGuestTokenAsync(guestToken, ct);
-        if (group is null) return null;
+        if (group is null) return ExpenseResult.NotFound;
 
         var expense = await _expenses.GetByIdAsync(expenseId, ct);
-        if (expense is null || expense.GroupId != group.Id) return null;
+        if (expense is null || expense.GroupId != group.Id) return ExpenseResult.NotFound;
 
         var allMembers = await _members.GetByGroupIdAsync(group.Id, ct);
+
+        // Member ids are well-formed GUIDs here (enforced by the validator).
+        if (request.Payers is not null &&
+            request.Payers.Any(p => allMembers.All(m => m.Id != Guid.Parse(p.MemberId))))
+            return ExpenseResult.PayerNotInGroup;
 
         // Null means "keep the expense's current participants" (mirrors the partial-update
         // convention used for the other optional fields below).
@@ -77,7 +82,7 @@ public class UpdateExpenseUseCase
 
         await _expenses.SaveChangesAsync(ct);
 
-        return MapToResponse(expense, allMembers);
+        return ExpenseResult.Success(MapToResponse(expense, allMembers));
     }
 
     /// <summary>

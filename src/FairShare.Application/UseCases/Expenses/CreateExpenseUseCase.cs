@@ -30,16 +30,21 @@ public class CreateExpenseUseCase
     /// <param name="guestToken">Group guest token.</param>
     /// <param name="request">Expense details.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>Full expense response or null when the group is not found.</returns>
-    public async Task<ExpenseResponse?> ExecuteAsync(
+    /// <returns>The created expense, or NotFound / PayerNotInGroup.</returns>
+    public async Task<ExpenseResult> ExecuteAsync(
         Guid guestToken,
         CreateExpenseRequest request,
         CancellationToken ct = default)
     {
         var group = await _groups.GetByGuestTokenAsync(guestToken, ct);
-        if (group is null) return null;
+        if (group is null) return ExpenseResult.NotFound;
 
         var allMembers = await _members.GetByGroupIdAsync(group.Id, ct);
+
+        // Member ids are well-formed GUIDs here (enforced by the validator).
+        if (request.Payers.Any(p => allMembers.All(m => m.Id != Guid.Parse(p.MemberId))))
+            return ExpenseResult.PayerNotInGroup;
+
         var participants = ResolveParticipants(request.ParticipantMemberIds, allMembers);
 
         var payers = request.Payers.Select(p => new ExpensePayer
@@ -71,7 +76,7 @@ public class CreateExpenseUseCase
 
         _logger.LogInformation("Created expense {ExpenseId} in group {GroupId}", expense.Id, group.Id);
 
-        return MapToResponse(expense, allMembers);
+        return ExpenseResult.Success(MapToResponse(expense, allMembers));
     }
 
     /// <summary>

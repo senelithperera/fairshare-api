@@ -52,10 +52,14 @@ public class ExpensesController : ControllerBase
             return ValidationProblem(new ValidationProblemDetails(validation.ToDictionary()));
 
         var result = await _createExpense.ExecuteAsync(guestToken, request, ct);
-        if (result is null)
-            return NotFound(NotFoundProblem("Group not found."));
 
-        return StatusCode(StatusCodes.Status201Created, result);
+        return result.Status switch
+        {
+            ExpenseResultStatus.Success         => StatusCode(StatusCodes.Status201Created, result.Expense),
+            ExpenseResultStatus.NotFound        => NotFound(NotFoundProblem("Group not found.")),
+            ExpenseResultStatus.PayerNotInGroup => PayerNotInGroupProblem(),
+            _ => StatusCode(500)
+        };
     }
 
     /// <summary>Updates an existing expense and recalculates splits.</summary>
@@ -77,10 +81,14 @@ public class ExpensesController : ControllerBase
             return ValidationProblem(new ValidationProblemDetails(validation.ToDictionary()));
 
         var result = await _updateExpense.ExecuteAsync(guestToken, expenseId, request, ct);
-        if (result is null)
-            return NotFound(NotFoundProblem("Group or expense not found."));
 
-        return Ok(result);
+        return result.Status switch
+        {
+            ExpenseResultStatus.Success         => Ok(result.Expense),
+            ExpenseResultStatus.NotFound        => NotFound(NotFoundProblem("Group or expense not found.")),
+            ExpenseResultStatus.PayerNotInGroup => PayerNotInGroupProblem(),
+            _ => StatusCode(500)
+        };
     }
 
     /// <summary>Soft-deletes an expense (sets IsDeleted = true).</summary>
@@ -104,6 +112,12 @@ public class ExpensesController : ControllerBase
             _ => StatusCode(500)
         };
     }
+
+    private IActionResult PayerNotInGroupProblem() =>
+        ValidationProblem(new ValidationProblemDetails(new Dictionary<string, string[]>
+        {
+            ["Payers"] = ["Every payer must be a member of this group."]
+        }));
 
     private static ProblemDetails NotFoundProblem(string detail) => new()
     {
