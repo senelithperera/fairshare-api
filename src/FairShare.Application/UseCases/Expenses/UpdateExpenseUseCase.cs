@@ -48,6 +48,7 @@ public class UpdateExpenseUseCase
         var participantIds = request.ParticipantMemberIds
             ?? expense.Splits.Select(s => s.MemberId.ToString()).ToList();
         var participants = ResolveParticipants(participantIds, allMembers);
+        if (participants is null) return ExpenseResult.ParticipantNotInGroup;
 
         // Apply patches
         if (request.Title is not null)
@@ -86,15 +87,16 @@ public class UpdateExpenseUseCase
     }
 
     /// <summary>
-    /// Resolves which members participate in the split, falling back to everyone in the
-    /// group if the supplied ids don't match any current member.
+    /// Resolves the supplied ids to group members (in join order), or null if any id isn't a
+    /// current member of the group. Ids are well-formed GUIDs here (enforced by the validator).
     /// </summary>
-    private static IReadOnlyList<GroupMember> ResolveParticipants(
+    private static IReadOnlyList<GroupMember>? ResolveParticipants(
         IReadOnlyList<string> participantMemberIds,
         IReadOnlyList<GroupMember> allMembers)
     {
-        var filtered = allMembers.Where(m => participantMemberIds.Contains(m.Id.ToString())).ToList();
-        return filtered.Count > 0 ? filtered : allMembers;
+        var ids = participantMemberIds.Select(Guid.Parse).ToHashSet();
+        var participants = allMembers.Where(m => ids.Contains(m.Id)).ToList();
+        return participants.Count == ids.Count ? participants : null;
     }
 
     private static List<ExpenseSplit> BuildExpenseSplits(

@@ -512,7 +512,7 @@ The test suite covers `SplitCalculator` and expense payer validation:
 - Equal split with one payer / multiple payers
 - Participant exclusion (excluded members owe nothing for that expense)
 - Rounding — whole-cent shares that sum to the total; net balance always sums to zero
-- Payer validation — malformed, duplicate and out-of-group payer ids are rejected
+- Payer and participant validation — malformed, duplicate and out-of-group member ids are rejected
 - Edge cases: no members, single member, zero total, all members balanced
 
 ---

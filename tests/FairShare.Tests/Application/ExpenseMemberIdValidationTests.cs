@@ -10,11 +10,11 @@ using Moq;
 namespace FairShare.Tests.Application;
 
 /// <summary>
-/// Payer member ids must be well-formed, distinct, and belong to the expense's group.
-/// Previously these produced a 500 (bad GUID / unknown id) or were silently accepted
-/// (duplicates / members of another group).
+/// Payer and participant member ids must be well-formed, distinct, and belong to the
+/// expense's group. Previously bad payer ids produced a 500 or were silently accepted, and
+/// unknown participant ids were dropped — falling back to "everyone" when none matched.
 /// </summary>
-public class ExpensePayerValidationTests
+public class ExpenseMemberIdValidationTests
 {
     private static readonly Guid GroupId    = Guid.NewGuid();
     private static readonly Guid GuestToken = Guid.NewGuid();
@@ -23,6 +23,9 @@ public class ExpensePayerValidationTests
 
     private static CreateExpenseRequest CreateRequest(params PayerRequest[] payers) =>
         new("Dinner", payers.Sum(p => p.AmountPaid), payers);
+
+    private static CreateExpenseRequest CreateRequestWithParticipants(params string[] participantIds) =>
+        new("Dinner", 100, [new PayerRequest(AliceId.ToString(), 100)], participantIds);
 
     // ── Validators ────────────────────────────────────────────────────────────
 
@@ -74,6 +77,35 @@ public class ExpensePayerValidationTests
     {
         new UpdateExpenseValidator().Validate(new UpdateExpenseRequest("New title", null, null))
             .IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Create_RejectsNonGuidParticipantId()
+    {
+        var result = new CreateExpenseValidator().Validate(CreateRequestWithParticipants("abc"));
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.ErrorMessage == "Participant member ID must be a valid ID.");
+    }
+
+    [Fact]
+    public void Create_RejectsDuplicateParticipants_IgnoringCase()
+    {
+        var result = new CreateExpenseValidator().Validate(
+            CreateRequestWithParticipants(AliceId.ToString(), AliceId.ToString().ToUpperInvariant()));
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.ErrorMessage == "Each member can only be listed once as a participant.");
+    }
+
+    [Fact]
+    public void Update_RejectsNonGuidAndDuplicateParticipants()
+    {
+        var badId = new UpdateExpenseRequest(null, null, null, ["not-a-guid"]);
+        var dupes = new UpdateExpenseRequest(null, null, null, [BobId.ToString(), BobId.ToString()]);
+
+        new UpdateExpenseValidator().Validate(badId).IsValid.Should().BeFalse();
+        new UpdateExpenseValidator().Validate(dupes).IsValid.Should().BeFalse();
     }
 
     // ── Use cases: group membership ───────────────────────────────────────────
@@ -138,6 +170,79 @@ public class ExpensePayerValidationTests
             new UpdateExpenseRequest(null, null, [new PayerRequest(Guid.NewGuid().ToString(), 100)]));
 
         result.Status.Should().Be(ExpenseResultStatus.PayerNotInGroup);
+        expenses.Verify(e => e.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateUseCase_RejectsUnknownParticipant_InsteadOfSplittingAmongEveryone()
+    {
+        var (groups, members, expenses) = Repos();
+        var useCase = new CreateExpenseUseCase(groups.Object, members.Object, expenses.Object,
+            NullLogger<CreateExpenseUseCase>.Instance);
+
+        var result = await useCase.ExecuteAsync(GuestToken,
+            CreateRequestWithParticipants(Guid.NewGuid().ToString()));
+
+        result.Status.Should().Be(ExpenseResultStatus.ParticipantNotInGroup);
+        expenses.Verify(e => e.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateUseCase_RejectsPartiallyUnknownParticipants_InsteadOfDroppingThem()
+    {
+        var (groups, members, expenses) = Repos();
+        var useCase = new CreateExpenseUseCase(groups.Object, members.Object, expenses.Object,
+            NullLogger<CreateExpenseUseCase>.Instance);
+
+        var result = await useCase.ExecuteAsync(GuestToken,
+            CreateRequestWithParticipants(AliceId.ToString(), Guid.NewGuid().ToString()));
+
+        result.Status.Should().Be(ExpenseResultStatus.ParticipantNotInGroup);
+        expenses.Verify(e => e.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateUseCase_MatchesParticipantIdsIgnoringCase()
+    {
+        var (groups, members, expenses) = Repos();
+        var useCase = new CreateExpenseUseCase(groups.Object, members.Object, expenses.Object,
+            NullLogger<CreateExpenseUseCase>.Instance);
+
+        var result = await useCase.ExecuteAsync(GuestToken,
+            CreateRequestWithParticipants(BobId.ToString().ToUpperInvariant()));
+
+        result.Status.Should().Be(ExpenseResultStatus.Success);
+        result.Expense!.Splits.Should().ContainSingle()
+            .Which.Should().Match<ExpenseSplitResponse>(s => s.DisplayName == "Bob" && s.ShareAmount == 100m);
+    }
+
+    [Fact]
+    public async Task CreateUseCase_NoParticipantList_SplitsAmongEveryone()
+    {
+        var (groups, members, expenses) = Repos();
+        var useCase = new CreateExpenseUseCase(groups.Object, members.Object, expenses.Object,
+            NullLogger<CreateExpenseUseCase>.Instance);
+
+        var result = await useCase.ExecuteAsync(GuestToken,
+            CreateRequest(new PayerRequest(AliceId.ToString(), 100)));
+
+        result.Status.Should().Be(ExpenseResultStatus.Success);
+        result.Expense!.Splits.Select(s => s.DisplayName).Should().Equal("Alice", "Bob");
+    }
+
+    [Fact]
+    public async Task UpdateUseCase_RejectsUnknownParticipant_WithoutSaving()
+    {
+        var (groups, members, expenses) = Repos();
+        var expenseId = Guid.NewGuid();
+        expenses.Setup(e => e.GetByIdAsync(expenseId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new Expense { Id = expenseId, GroupId = GroupId, Title = "Dinner", TotalAmount = 100 });
+        var useCase = new UpdateExpenseUseCase(groups.Object, members.Object, expenses.Object);
+
+        var result = await useCase.ExecuteAsync(GuestToken, expenseId,
+            new UpdateExpenseRequest(null, null, null, [Guid.NewGuid().ToString()]));
+
+        result.Status.Should().Be(ExpenseResultStatus.ParticipantNotInGroup);
         expenses.Verify(e => e.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 }

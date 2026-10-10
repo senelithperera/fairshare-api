@@ -168,7 +168,7 @@ Each expense's shares are computed when the expense is saved (`SplitCalculator.S
 | `EqualSplit_AllMembersPaidEqual_NoSettlements` | Perfect split → no settlements |
 | `SimplifyDebts_MultipleCreditors_TransactionsMinimized` | Greedy algorithm settles all debts exactly |
 
-`FairShare.Tests/Application/ExpensePayerValidationTests.cs` covers payer validation: malformed and duplicate payer ids are rejected by the validators, and payers outside the group are rejected by the create/update use cases without saving.
+`FairShare.Tests/Application/ExpenseMemberIdValidationTests.cs` covers payer and participant ids: malformed and duplicate ids are rejected by the validators, and ids outside the group are rejected by the create/update use cases without saving (no more falling back to "everyone" for unknown participants).
 
 ---
 
@@ -183,8 +183,8 @@ All request bodies are validated before reaching use cases. Validation errors re
 | `CreateGroupValidator` | Name: required, max 100; Currency: required, max 10 |
 | `AddMemberValidator` | GuestName: required, max 80 |
 | `UpdateMemberValidator` | GuestName: max 80 if provided |
-| `CreateExpenseValidator` | Title: required, max 150; Amount: > 0; at least one payer; payer amounts must sum to total |
-| `UpdateExpenseValidator` | Title: max 150 if provided; Amount: > 0 if provided; payer amounts must sum to total if both provided |
+| `CreateExpenseValidator` | Title: required, max 150; Amount: > 0, max 2 decimals; at least one payer; payer amounts must sum to total; payer and participant ids must be valid GUIDs with no duplicates |
+| `UpdateExpenseValidator` | Title: max 150 if provided; Amount: > 0, max 2 decimals if provided; payer amounts must sum to total if both provided; payer and participant ids must be valid GUIDs with no duplicates |
 | `RegisterValidator` | Name: required, max 100; Email: valid format, max 255; Password: min 8, 1 uppercase, 1 digit |
 | `LoginValidator` | Email: required, valid format; Password: required |
 

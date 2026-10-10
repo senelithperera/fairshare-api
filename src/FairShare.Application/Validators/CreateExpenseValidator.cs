@@ -26,14 +26,14 @@ public class CreateExpenseValidator : AbstractValidator<CreateExpenseRequest>
             .When(x => x.Payers is { Count: > 0 });
 
         RuleFor(x => x.Payers)
-            .Must(PayerRules.HaveDistinctMembers).WithMessage("Each member can only be listed once as a payer.")
+            .Must(payers => MemberIdRules.BeDistinct(payers.Select(p => p.MemberId))).WithMessage("Each member can only be listed once as a payer.")
             .When(x => x.Payers is { Count: > 0 });
 
         RuleForEach(x => x.Payers).ChildRules(payer =>
         {
             payer.RuleFor(p => p.MemberId).Cascade(CascadeMode.Stop)
                 .NotEmpty().WithMessage("Payer member ID is required.")
-                .Must(PayerRules.BeAGuid).WithMessage("Payer member ID must be a valid ID.");
+                .Must(MemberIdRules.BeAGuid).WithMessage("Payer member ID must be a valid ID.");
             payer.RuleFor(p => p.AmountPaid)
                 .GreaterThan(0).WithMessage("Amount paid must be greater than 0.")
                 .PrecisionScale(18, 2, true).WithMessage("Amount paid can have at most 2 decimal places.");
@@ -41,6 +41,16 @@ public class CreateExpenseValidator : AbstractValidator<CreateExpenseRequest>
 
         RuleFor(x => x.ParticipantMemberIds)
             .NotEmpty().WithMessage("At least one participant is required.")
+            .When(x => x.ParticipantMemberIds is not null);
+
+        RuleFor(x => x.ParticipantMemberIds!)
+            .Must(MemberIdRules.BeDistinct).WithMessage("Each member can only be listed once as a participant.")
+            .When(x => x.ParticipantMemberIds is { Count: > 0 });
+
+        RuleForEach(x => x.ParticipantMemberIds)
+            .Cascade(CascadeMode.Stop)
+            .NotEmpty().WithMessage("Participant member ID is required.")
+            .Must(MemberIdRules.BeAGuid).WithMessage("Participant member ID must be a valid ID.")
             .When(x => x.ParticipantMemberIds is not null);
     }
 }

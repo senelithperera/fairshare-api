@@ -55,9 +55,10 @@ public class ExpensesController : ControllerBase
 
         return result.Status switch
         {
-            ExpenseResultStatus.Success         => StatusCode(StatusCodes.Status201Created, result.Expense),
-            ExpenseResultStatus.NotFound        => NotFound(NotFoundProblem("Group not found.")),
-            ExpenseResultStatus.PayerNotInGroup => PayerNotInGroupProblem(),
+            ExpenseResultStatus.Success               => StatusCode(StatusCodes.Status201Created, result.Expense),
+            ExpenseResultStatus.NotFound              => NotFound(NotFoundProblem("Group not found.")),
+            ExpenseResultStatus.PayerNotInGroup       => PayerNotInGroupProblem(),
+            ExpenseResultStatus.ParticipantNotInGroup => ParticipantNotInGroupProblem(),
             _ => StatusCode(500)
         };
     }
@@ -84,9 +85,10 @@ public class ExpensesController : ControllerBase
 
         return result.Status switch
         {
-            ExpenseResultStatus.Success         => Ok(result.Expense),
-            ExpenseResultStatus.NotFound        => NotFound(NotFoundProblem("Group or expense not found.")),
-            ExpenseResultStatus.PayerNotInGroup => PayerNotInGroupProblem(),
+            ExpenseResultStatus.Success               => Ok(result.Expense),
+            ExpenseResultStatus.NotFound              => NotFound(NotFoundProblem("Group or expense not found.")),
+            ExpenseResultStatus.PayerNotInGroup       => PayerNotInGroupProblem(),
+            ExpenseResultStatus.ParticipantNotInGroup => ParticipantNotInGroupProblem(),
             _ => StatusCode(500)
         };
     }
@@ -117,6 +119,12 @@ public class ExpensesController : ControllerBase
         ValidationProblem(new ValidationProblemDetails(new Dictionary<string, string[]>
         {
             ["Payers"] = ["Every payer must be a member of this group."]
+        }));
+
+    private IActionResult ParticipantNotInGroupProblem() =>
+        ValidationProblem(new ValidationProblemDetails(new Dictionary<string, string[]>
+        {
+            ["ParticipantMemberIds"] = ["Every participant must be a member of this group."]
         }));
 
     private static ProblemDetails NotFoundProblem(string detail) => new()
