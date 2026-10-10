@@ -150,9 +150,6 @@ namespace FairShare.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<decimal?>("BudgetCap")
-                        .HasColumnType("numeric(18,2)");
-
                     b.Property<Guid>("GroupId")
                         .HasColumnType("uuid");
 

@@ -22,7 +22,6 @@ public record GroupDetailResponse(
 public record GroupMemberResponse(
     string MemberId,
     string DisplayName,
-    decimal? BudgetCap,
     decimal TotalAmountPaid,
     string JoinedAt);
 

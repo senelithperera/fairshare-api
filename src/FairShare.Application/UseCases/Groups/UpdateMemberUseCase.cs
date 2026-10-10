@@ -3,7 +3,7 @@ using FairShare.Application.Interfaces;
 
 namespace FairShare.Application.UseCases.Groups;
 
-/// <summary>Updates a guest member's name or budget cap.</summary>
+/// <summary>Updates a guest member's name.</summary>
 public class UpdateMemberUseCase
 {
     private readonly IGroupRepository _groups;
@@ -40,9 +40,6 @@ public class UpdateMemberUseCase
         if (request.GuestName is not null)
             member.GuestName = request.GuestName.Trim();
 
-        if (request.BudgetCap.HasValue)
-            member.BudgetCap = request.BudgetCap;
-
         _members.Update(member);
         await _members.SaveChangesAsync(ct);
 
@@ -51,7 +48,6 @@ public class UpdateMemberUseCase
         return new GroupMemberResponse(
             member.Id.ToString(),
             member.GuestName ?? member.User?.Name ?? "Unknown",
-            member.BudgetCap,
             totalPaid,
             member.JoinedAt.ToString("o"));
     }

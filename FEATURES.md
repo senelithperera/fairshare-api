@@ -27,7 +27,7 @@ All Phase 1 routes are accessed via a `guestToken` (UUID) in the URL path instea
 
 **Create group** auto-generates a unique `GuestToken` (UUID) used as the group's shareable public identifier. Returns `groupId`, `guestToken`, `name`, and `currency`.
 
-**Get group detail** returns the group's name, currency, creation time, archival status, all members (with caps and total amounts paid), and all active (non-deleted) expenses with their payer breakdowns.
+**Get group detail** returns the group's name, currency, creation time, archival status, all members (with total amounts paid), and all expenses with their payer and split breakdowns.
 
 ---
 
@@ -36,11 +36,11 @@ All Phase 1 routes are accessed via a `guestToken` (UUID) in the URL path instea
 | Feature | Method | Route |
 |---|---|---|
 | Add a guest member | `POST` | `/api/groups/{guestToken}/members` |
-| Update a member's name or cap | `PATCH` | `/api/groups/{guestToken}/members/{memberId}` |
+| Update a member's name | `PATCH` | `/api/groups/{guestToken}/members/{memberId}` |
 | Remove a member | `DELETE` | `/api/groups/{guestToken}/members/{memberId}` |
 
-- **Add member** — requires `guestName`; optional `budgetCap` (must be > 0 if supplied).
-- **Update member** — partial update; only fields provided are changed.
+- **Add member** — requires `guestName`.
+- **Update member** — changes the member's `guestName`.
 - **Delete member** — hard-deletes the record but is blocked with HTTP 409 if the member has any associated expense records (payer or split), preventing data orphaning.
 
 ---
@@ -55,9 +55,9 @@ All Phase 1 routes are accessed via a `guestToken` (UUID) in the URL path instea
 
 - **Add expense** — records `title`, `totalAmount`, and one or more `payers` (member + amount paid). Validates that payer amounts sum to `totalAmount`. Calculates and persists `ExpenseSplit` records (equal division per expense) immediately.
 - **Update expense** — partial update for title and/or total amount; replaces payers if provided and recalculates splits.
-- **Delete expense** — soft delete (`IsDeleted = true`). The record is never physically removed. Deleted expenses are excluded from all queries and calculations via a global EF Core query filter.
+- **Delete expense** — hard delete. The expense row is removed and its payer and split rows go with it (ON DELETE CASCADE).
 
-Split mode is a group-level concept driven by member `BudgetCap` values, not a per-expense field. Expenses record who paid what; the `SplitCalculator` determines fair shares across all expenses at summary time.
+Every expense is split equally among its selected participants (`participantMemberIds`, default everyone). Expenses record who paid what and who shares the cost; the `SplitCalculator` nets this across all expenses at summary time.
 
 ---
 
@@ -123,21 +123,18 @@ Same endpoint as Phase 1 — when a valid JWT is present, the group's `CreatedBy
 
 The `SplitCalculator` is a **pure static domain service** (`FairShare.Domain/Services/SplitCalculator.cs`) with zero infrastructure dependencies, designed to be fully unit-testable.
 
-Split mode is determined at the **group level** by member `BudgetCap` values — not stored on individual expenses. Expenses record who paid what; the calculator aggregates payments across all expenses and computes net balances in one pass.
+Each expense's shares are computed when the expense is saved (`SplitCalculator.SplitEvenly`, whole cents) and stored as `ExpenseSplit` rows. The summary aggregates payments and shares across all expenses and computes net balances in one pass.
 
-### Algorithm (9 steps)
+### Algorithm
 
 | Step | Action |
 |---|---|
 | 1 | Sum all expense amounts → `totalSpent` |
-| 2 | Partition members into capped (have `BudgetCap`) and uncapped |
-| 3 | Sum all caps → `cappedTotal` |
-| 4 | **Fallback check** — if `cappedTotal >= totalSpent`, ignore all caps and treat everyone as uncapped |
-| 5 | Calculate `equalShare = (totalSpent - cappedTotal) / uncappedCount`; assign decimal remainder to first uncapped member |
-| 6 | Assign fair shares: capped members pay their cap, uncapped members pay `equalShare` |
-| 7 | `balance = amountPaid - fairShare` (positive = creditor, negative = debtor) |
-| 8 | **Greedy debt simplification** — repeatedly match the largest creditor with the largest debtor, record a transfer, reduce balances; terminates in the minimum number of transactions |
-| 9 | Return `MemberBalance[]` and `Settlement[]` |
+| 2 | **Paid** per member = sum of their `ExpensePayer.AmountPaid` rows |
+| 3 | **Fair share** per member = sum of their `ExpenseSplit.ShareAmount` rows (no row = excluded from that expense) |
+| 4 | `balance = amountPaid - fairShare` (positive = creditor, negative = debtor) |
+| 5 | **Greedy debt simplification** — repeatedly match the largest creditor with the largest debtor, record a transfer, reduce balances; at most n − 1 transfers |
+| 6 | Return `MemberBalance[]` and `Settlement[]` |
 
 ### Edge cases handled
 
@@ -147,30 +144,31 @@ Split mode is determined at the **group level** by member `BudgetCap` values —
 | Single member | No settlements needed |
 | Zero total spent | All balances are zero |
 | All members paid equally | No settlements needed |
-| `cappedTotal >= totalSpent` | Full equal split fallback, caps ignored |
-| Member paid more than their cap | Treated as creditor; excess paid goes toward offsetting debtors |
-| Decimal rounding | Remainder (from integer-precision division) assigned to the first eligible member |
+| Member excluded from an expense | Owes nothing for it; can still be a payer (pure creditor) |
+| Decimal rounding | Shares are whole cents; leftover cents go one each to the earliest-joined participants, so shares sum exactly to the total |
 | Multiple creditors and debtors | Greedy algorithm minimises transaction count |
 
-### Unit test coverage (`FairShare.Tests/Domain/SplitCalculatorTests.cs`)
+### Unit test coverage
+
+`FairShare.Tests/Domain/SplitCalculatorTests.cs`
 
 | Test | Scenario |
 |---|---|
 | `EqualSplit_ThreeMembers_BalancesAreCorrect` | One payer, two non-payers — correct balance split |
 | `EqualSplit_ThreeMembers_SettlementsAreMinimal` | Two settlements, both to Alice |
 | `EqualSplit_TwoMembers_BothPaidSome` | Partial payers — correct creditor/debtor assignment |
-| `CappedSplit_OneCappedOneUncapped_SharesAreCorrect` | Cap + uncapped shares calculated correctly |
-| `CappedSplit_MultipleCappedAndUncapped` | All balances zero when everyone paid their exact share |
-| `CappedSplit_CapsExceedTotal_FallsBackToEqualSplit` | Fallback triggered when caps ≥ total |
-| `CappedSplit_CapsExactlyEqualTotal_FallsBackToEqualSplit` | Boundary condition: caps == total |
-| `EqualSplit_Rounding_RemainderAssignedToFirstMember` | Total balances sum to zero |
-| `CappedSplit_Rounding_RemainderAssignedToFirstUncappedMember` | Total balances sum to zero |
-| `CappedSplit_MemberPaidMoreThanCap_TreatedAsCreditor` | Over-cap payer becomes creditor |
+| `Exclusion_MemberNotInSplit_OwesNothingForThatExpense` | Excluded member has zero balance and no settlement |
+| `Exclusion_ExcludedMemberStillPaid_IsPureCreditor` | Payer excluded from the split is owed the full amount |
+| `SplitEvenly_ProducesWholeCentSharesThatSumToTotal` | Whole-cent shares that sum exactly to the total |
+| `SplitEvenly_ZeroMembers_Throws` | Splitting across zero members is rejected |
+| `EqualSplit_Rounding_BalancesNetToExactlyZero` | Balances net to zero; each settlement matches the balance |
 | `Calculate_NoMembers_ReturnsEmptyResult` | Empty input → empty output |
 | `Calculate_OneMember_NoSettlementsNeeded` | Solo group → no settlements |
 | `Calculate_ZeroTotalSpent_AllBalancesZero` | Nothing spent → all balances zero |
 | `EqualSplit_AllMembersPaidEqual_NoSettlements` | Perfect split → no settlements |
 | `SimplifyDebts_MultipleCreditors_TransactionsMinimized` | Greedy algorithm settles all debts exactly |
+
+`FairShare.Tests/Application/ExpensePayerValidationTests.cs` covers payer validation: malformed and duplicate payer ids are rejected by the validators, and payers outside the group are rejected by the create/update use cases without saving.
 
 ---
 
@@ -183,8 +181,8 @@ All request bodies are validated before reaching use cases. Validation errors re
 | Validator | Rules |
 |---|---|
 | `CreateGroupValidator` | Name: required, max 100; Currency: required, max 10 |
-| `AddMemberValidator` | GuestName: required, max 80; BudgetCap: > 0 if provided |
-| `UpdateMemberValidator` | GuestName: max 80 if provided; BudgetCap: > 0 if provided |
+| `AddMemberValidator` | GuestName: required, max 80 |
+| `UpdateMemberValidator` | GuestName: max 80 if provided |
 | `CreateExpenseValidator` | Title: required, max 150; Amount: > 0; at least one payer; payer amounts must sum to total |
 | `UpdateExpenseValidator` | Title: max 150 if provided; Amount: > 0 if provided; payer amounts must sum to total if both provided |
 | `RegisterValidator` | Name: required, max 100; Email: valid format, max 255; Password: min 8, 1 uppercase, 1 digit |
@@ -269,8 +267,8 @@ User ─────────────────────────
                        groupId (FK)   groupId (FK)
                        userId (nullable FK → User)
                        guestName      title, totalAmount
-                       budgetCap      createdByMemberId (FK → GroupMember)
-                       joinedAt       createdAt, isDeleted
+                       joinedAt       createdByMemberId (FK → GroupMember)
+                                      createdAt
                           │                │
                ┌──────────┘    ┌───────────┴────────────┐
                │               │                        │
@@ -281,8 +279,8 @@ User ─────────────────────────
                            amountPaid               shareAmount
 ```
 
-**Soft-delete strategy:**
-- `Expense.IsDeleted = true` — global EF query filter excludes from all reads
+**Delete strategy:**
+- Expenses are hard-deleted; payer and split rows are removed by cascade
 - `Group.IsArchived = true` — global EF query filter excludes from list reads
 
 ---
@@ -295,7 +293,7 @@ User ─────────────────────────
 
 | Item | Decision |
 |---|---|
-| Per-expense `SplitMode` field | **Removed.** The field was accepted in requests and stored in the DB but never influenced any calculation. Split fairness is a group-level concern driven by member `BudgetCap` values in the `SplitCalculator`. Migration `RemoveSplitMode` dropped the `SplitMode` column from the `expenses` table. `SplitMode.cs` enum deleted. |
+| Per-expense `SplitMode` field | **Removed.** The field was accepted in requests and stored in the DB but never influenced any calculation. Migration `RemoveSplitMode` dropped the `SplitMode` column from the `expenses` table. `SplitMode.cs` enum deleted. |
 | `?createdByMemberId` query param | **Deferred to Phase 2.** Guest flow has no identity, so the field cannot be reliably populated. The `CreatedByMemberId` column remains on the entity for Phase 2. |
 | Dead code in `CreateExpenseUseCase` | **Removed.** The intermediate `SplitCalculator.Calculate()` call and its result were being immediately overwritten by `BuildExpenseSplits()`. Cleaned up — `SplitCalculator` is now only called in `GetSummaryUseCase` where it belongs. |
 

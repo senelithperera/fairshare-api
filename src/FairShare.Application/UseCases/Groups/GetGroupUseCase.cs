@@ -33,7 +33,6 @@ public class GetGroupUseCase
         g.Members.Select(m => new GroupMemberResponse(
             m.Id.ToString(),
             m.GuestName ?? m.User?.Name ?? "Unknown",
-            m.BudgetCap,
             m.PayerRecords.Sum(p => p.AmountPaid),
             m.JoinedAt.ToString("o"))).ToList(),
         g.Expenses

@@ -73,16 +73,16 @@ The `guestToken` UUID is the only key needed to access and manage a group. It li
 ├──────────────────────────────────────────────────────────┤
 │  MEMBERS                                   [+ Add Member] │
 │  ┌────────────────────────────────────────────────────┐  │
-│  │  Alice          Cap: —          Paid: 90,000.00  ✎ │  │
-│  │  Bob            Cap: 5,000.00   Paid: 0.00        ✎ │  │
-│  │  Carol          Cap: —          Paid: 0.00        ✎ │  │
+│  │  Alice                          Paid: 90,000.00  ✎ │  │
+│  │  Bob                            Paid: 0.00        ✎ │  │
+│  │  Carol                          Paid: 0.00        ✎ │  │
 │  └────────────────────────────────────────────────────┘  │
 ├──────────────────────────────────────────────────────────┤
 │  EXPENSES                                 [+ Add Expense] │
 │  ┌────────────────────────────────────────────────────┐  │
 │  │  Hotel       30,000.00   Equal   Alice       ✎ 🗑  │  │
 │  │  Transport   15,000.00   Equal   Alice, Bob  ✎ 🗑  │  │
-│  │  Food        45,000.00   Capped  Alice       ✎ 🗑  │  │
+│  │  Food        45,000.00   Equal   Alice       ✎ 🗑  │  │
 │  └────────────────────────────────────────────────────┘  │
 │                                Total spent: 90,000.00     │
 └──────────────────────────────────────────────────────────┘
@@ -93,7 +93,7 @@ The `guestToken` UUID is the only key needed to access and manage a group. It li
 | Section | Fields |
 |---|---|
 | Header | Group name, currency |
-| Members list | `guestName`, `budgetCap` (shown as "—" if null), total `amountPaid` across all expenses |
+| Members list | `guestName`, total `amountPaid` across all expenses |
 | Expenses list | `title`, `totalAmount`, `splitMode`, payer names, edit/delete actions |
 | Footer | Sum of all expense `totalAmount` values |
 
@@ -112,7 +112,7 @@ The `guestToken` UUID is the only key needed to access and manage a group. It li
 
 ## Screen 3 — Add / Edit Member (Modal or Slide-in Panel)
 
-**Purpose:** Add a new member to the group, or update an existing member's name or budget cap.
+**Purpose:** Add a new member to the group, or update an existing member's name.
 
 **API calls:**
 - Add: `POST /api/groups/{guestToken}/members`
@@ -126,8 +126,6 @@ The `guestToken` UUID is the only key needed to access and manage a group. It li
 │  Add Member          [ × ]     │
 ├────────────────────────────────┤
 │  Name    [____________________]│
-│  Budget  [____________________]│
-│  Cap     (optional, e.g. 5000) │
 │                                │
 │  [ Cancel ]   [ Save Member ]  │
 │                                │
@@ -142,12 +140,11 @@ The `guestToken` UUID is the only key needed to access and manage a group. It li
 | Field | Type | Required | Constraints |
 |---|---|---|---|
 | Name | Text input | Yes | Max 80 chars |
-| Budget Cap | Number input | No | Must be > 0 if provided |
 
 ### Behaviour
 
-- **Add mode:** fields start empty.
-- **Edit mode:** fields pre-filled with current `guestName` and `budgetCap`.
+- **Add mode:** the name field starts empty.
+- **Edit mode:** the name field is pre-filled with the current `guestName`.
 - On **Save**: call the appropriate endpoint; on success close the form and refresh the member list.
 - On **Delete Member** (edit mode only):
   - Show confirmation: *"Remove [Name]? This cannot be undone."*
@@ -193,7 +190,7 @@ The `guestToken` UUID is the only key needed to access and manage a group. It li
 |---|---|---|---|
 | Title | Text input | Yes | Max 150 chars |
 | Total Amount | Number input | Yes | Must be > 0 |
-| Split Mode | Dropdown | Yes | Equal / Capped / Custom / Percentage |
+| Split Mode | Dropdown | Yes | Equal / Custom / Percentage |
 | Added by | Dropdown (members) | Yes | Sent as `?createdByMemberId=` query param |
 | Payers | Repeating row: member dropdown + amount | Yes | At least one; amounts must sum to Total Amount |
 
