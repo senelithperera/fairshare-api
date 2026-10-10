@@ -91,7 +91,7 @@ public class ExpensesController : ControllerBase
         };
     }
 
-    /// <summary>Soft-deletes an expense (sets IsDeleted = true).</summary>
+    /// <summary>Permanently deletes an expense along with its payers and splits.</summary>
     /// <response code="204">Expense deleted.</response>
     /// <response code="404">Group or expense not found.</response>
     [HttpDelete("{expenseId:guid}")]

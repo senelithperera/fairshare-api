@@ -62,7 +62,6 @@ public class CreateExpenseUseCase
             TotalAmount       = request.TotalAmount,
             CreatedByMemberId = null,
             CreatedAt         = DateTime.UtcNow,
-            IsDeleted         = false,
             Payers            = payers,
             Splits            = BuildExpenseSplits(Guid.Empty, participants, request.TotalAmount)
         };

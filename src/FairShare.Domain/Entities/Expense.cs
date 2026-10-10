@@ -21,9 +21,6 @@ public class Expense
     /// <summary>UTC timestamp of expense creation.</summary>
     public DateTime CreatedAt { get; set; }
 
-    /// <summary>Soft-delete flag. Soft-deleted expenses are excluded from all queries and calculations.</summary>
-    public bool IsDeleted { get; set; }
-
     // Navigation properties
     public Group Group { get; set; } = null!;
     public GroupMember? CreatedByMember { get; set; }

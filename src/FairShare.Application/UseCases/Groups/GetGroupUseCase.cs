@@ -37,7 +37,6 @@ public class GetGroupUseCase
             m.PayerRecords.Sum(p => p.AmountPaid),
             m.JoinedAt.ToString("o"))).ToList(),
         g.Expenses
-            .Where(e => !e.IsDeleted)
             .Select(e => new ExpenseSummaryResponse(
                 e.Id.ToString(),
                 e.Title,
