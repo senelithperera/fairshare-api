@@ -1,6 +1,7 @@
 using FairShare.Application.DTOs.Expenses;
 using FairShare.Application.Interfaces;
 using FairShare.Domain.Entities;
+using FairShare.Domain.Services;
 using Microsoft.Extensions.Logging;
 
 namespace FairShare.Application.UseCases.Expenses;
@@ -92,15 +93,14 @@ public class CreateExpenseUseCase
         IReadOnlyList<GroupMember> members,
         decimal totalAmount)
     {
-        decimal equalShare = totalAmount / members.Count;
-        decimal remainder  = totalAmount - equalShare * members.Count;
+        var shares = SplitCalculator.SplitEvenly(totalAmount, members.Count);
 
         return members.Select((m, i) => new ExpenseSplit
         {
             Id          = Guid.NewGuid(),
             ExpenseId   = expenseId,
             MemberId    = m.Id,
-            ShareAmount = i == 0 ? equalShare + remainder : equalShare
+            ShareAmount = shares[i]
         }).ToList();
     }
 

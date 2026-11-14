@@ -23,19 +23,11 @@ public class SplitCalculatorTests
         => new(Guid.NewGuid(), name, cap, paid, rawFairShare);
 
     /// <summary>
-    /// Mirrors the production flat equal-split convention used by
-    /// CreateExpenseUseCase/UpdateExpenseUseCase's BuildExpenseSplits: divide evenly,
-    /// assign the rounding remainder to the first member.
+    /// The same whole-cent equal split that CreateExpenseUseCase/UpdateExpenseUseCase persist
+    /// as ExpenseSplit rows.
     /// </summary>
-    private static decimal[] EqualRawShares(decimal total, int count)
-    {
-        decimal equalShare = total / count;
-        decimal remainder  = total - equalShare * count;
-        var shares = new decimal[count];
-        for (int i = 0; i < count; i++)
-            shares[i] = i == 0 ? equalShare + remainder : equalShare;
-        return shares;
-    }
+    private static IReadOnlyList<decimal> EqualRawShares(decimal total, int count)
+        => SplitCalculator.SplitEvenly(total, count);
 
     // ─────────────────────────────────────────────────
     // Equal Split
@@ -267,30 +259,60 @@ public class SplitCalculatorTests
     // Rounding
     // ─────────────────────────────────────────────────
 
-    [Fact]
-    public void EqualSplit_Rounding_RemainderAssignedToFirstMember()
+    [Theory]
+    [InlineData("100",   3, "33.34,33.33,33.33")]
+    [InlineData("2",     3, "0.67,0.67,0.66")]
+    [InlineData("10",    3, "3.34,3.33,3.33")]
+    [InlineData("1000",  7, "142.86,142.86,142.86,142.86,142.86,142.85,142.85")]
+    [InlineData("15000", 9, "1666.67,1666.67,1666.67,1666.67,1666.67,1666.67,1666.66,1666.66,1666.66")]
+    [InlineData("30000", 3, "10000,10000,10000")]
+    [InlineData("0.01",  3, "0.01,0,0")]
+    public void SplitEvenly_ProducesWholeCentSharesThatSumToTotal(string total, int count, string expected)
     {
-        // Total = 10 split three ways: 10/3 = 3.333..., remainder assigned to the first
-        // member — mirrors BuildExpenseSplits' persisted-split rounding convention.
-        var shares = EqualRawShares(10m, 3);
-        var a = Member("A", null, 10m, shares[0]);
-        var b = Member("B", null,  0m, shares[1]);
-        var c = Member("C", null,  0m, shares[2]);
+        var totalAmount = decimal.Parse(total, System.Globalization.CultureInfo.InvariantCulture);
+        var expectedShares = expected.Split(',')
+            .Select(s => decimal.Parse(s, System.Globalization.CultureInfo.InvariantCulture));
 
-        var result = SplitCalculator.Calculate(new[] { a, b, c });
+        var shares = SplitCalculator.SplitEvenly(totalAmount, count);
 
-        var totalBalance = result.MemberBalances.Sum(x => x.Balance);
-        totalBalance.Should().BeApproximately(0m, 0.001m);
-
-        decimal totalSettled = result.Settlements.Sum(s => s.Amount);
-        decimal totalOwed    = result.MemberBalances.Where(x => x.Balance > 0).Sum(x => x.Balance);
-        totalSettled.Should().BeApproximately(totalOwed, 0.01m);
+        shares.Should().Equal(expectedShares);
+        shares.Sum().Should().Be(totalAmount);
+        // Every share must already be whole cents — otherwise the numeric(18,2) column
+        // rounds each one independently on insert and the stored shares drift from the total.
+        shares.Should().OnlyContain(s => s == Math.Round(s, 2));
     }
 
     [Fact]
-    public void CappedSplit_Rounding_RemainderAssignedToFirstUncappedMember()
+    public void SplitEvenly_ZeroMembers_Throws()
     {
-        // Total = 100 split three ways: 33.34 / 33.33 / 33.33 (remainder to first).
+        var act = () => SplitCalculator.SplitEvenly(100m, 0);
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void EqualSplit_Rounding_BalancesNetToExactlyZero()
+    {
+        // 15000 split nine ways — the real-data case where the old split stored
+        // 1666.67 × 9 = 15000.03 and the last debtor's settlement was silently cut to 1666.64.
+        var shares  = EqualRawShares(15000m, 9);
+        var members = shares
+            .Select((share, i) => Member($"M{i}", null, i == 0 ? 15000m : 0m, share))
+            .ToList();
+
+        var result = SplitCalculator.Calculate(members);
+
+        result.MemberBalances.Sum(x => x.Balance).Should().Be(0m);
+
+        // Every debtor's settlement matches their displayed balance exactly.
+        foreach (var debtor in result.MemberBalances.Where(b => b.Balance < 0))
+            result.Settlements.Single(s => s.FromMemberId == debtor.MemberId)
+                .Amount.Should().Be(-debtor.Balance);
+    }
+
+    [Fact]
+    public void CappedSplit_Rounding_BalancesNetToExactlyZero()
+    {
+        // Total = 100 split three ways: 33.34 / 33.33 / 33.33.
         var shares = EqualRawShares(100m, 3);
         var capped    = Member("Capped",    1m,  1m, shares[0]);
         var uncapped1 = Member("Uncapped1", null, 0m, shares[1]);
@@ -298,8 +320,7 @@ public class SplitCalculatorTests
 
         var result = SplitCalculator.Calculate(new[] { capped, uncapped1, uncapped2 });
 
-        var totalBalance = result.MemberBalances.Sum(x => x.Balance);
-        totalBalance.Should().BeApproximately(0m, 0.001m);
+        result.MemberBalances.Sum(x => x.Balance).Should().Be(0m);
     }
 
     // ─────────────────────────────────────────────────

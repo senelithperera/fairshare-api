@@ -25,6 +25,7 @@ public class GroupMemberRepository : IGroupMemberRepository
             .Include(m => m.User)
             .Include(m => m.PayerRecords)
             .Where(m => m.GroupId == groupId)
+            .OrderBy(m => m.JoinedAt)
             .ToListAsync(ct);
 
     /// <inheritdoc/>

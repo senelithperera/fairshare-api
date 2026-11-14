@@ -59,20 +59,9 @@ public static class SplitCalculator
         // STEP 4 — spread the excess pool equally across uncapped members
         if (excessPool > 0 && uncappedMembers.Count > 0)
         {
-            decimal equalExtra = excessPool / uncappedMembers.Count;
-            decimal remainder  = excessPool - equalExtra * uncappedMembers.Count;
-
-            bool remainderAssigned = false;
-            foreach (var m in uncappedMembers)
-            {
-                decimal extra = equalExtra;
-                if (!remainderAssigned && remainder != 0)
-                {
-                    extra += remainder;
-                    remainderAssigned = true;
-                }
-                fairShare[m.MemberId] += extra;
-            }
+            var extras = SplitEvenly(excessPool, uncappedMembers.Count);
+            for (int i = 0; i < uncappedMembers.Count; i++)
+                fairShare[uncappedMembers[i].MemberId] += extras[i];
         }
 
         // STEP 5 — balance per member (positive = creditor, negative = debtor)
@@ -88,6 +77,33 @@ public static class SplitCalculator
         var settlements = SimplifyDebts(balances);
 
         return new SplitResult(balances, settlements);
+    }
+
+    /// <summary>
+    /// Splits <paramref name="total"/> into <paramref name="count"/> shares of whole cents that
+    /// always sum exactly to the total. Each share is the total divided evenly and rounded down
+    /// to the cent; the leftover cents are then handed out one each to the first members, so no
+    /// two shares differ by more than 0.01 (e.g. 100 / 3 → 33.34, 33.33, 33.33).
+    /// </summary>
+    /// <remarks>
+    /// Rounding must happen here rather than being left to the <c>numeric(18,2)</c> column —
+    /// otherwise every share gets rounded independently on insert and the stored shares drift
+    /// away from the total (100 / 3 would persist as 33.33 × 3 = 99.99).
+    /// </remarks>
+    public static IReadOnlyList<decimal> SplitEvenly(decimal total, int count)
+    {
+        if (count <= 0)
+            throw new ArgumentOutOfRangeException(nameof(count), "Cannot split across zero members.");
+
+        // Match how Postgres stores the total, so shares sum to the persisted value.
+        total = Math.Round(total, 2, MidpointRounding.AwayFromZero);
+
+        decimal baseShare  = Math.Floor(total * 100 / count) / 100m;
+        int leftoverCents  = (int)((total - baseShare * count) * 100);
+
+        return Enumerable.Range(0, count)
+            .Select(i => baseShare + (i < leftoverCents ? 0.01m : 0m))
+            .ToList();
     }
 
     /// <summary>

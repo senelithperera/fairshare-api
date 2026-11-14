@@ -14,6 +14,7 @@ public class UpdateExpenseValidator : AbstractValidator<UpdateExpenseRequest>
 
         RuleFor(x => x.TotalAmount)
             .GreaterThan(0).WithMessage("Total amount must be greater than 0.")
+            .PrecisionScale(18, 2, true).WithMessage("Total amount can have at most 2 decimal places.")
             .When(x => x.TotalAmount.HasValue);
 
         RuleFor(x => x.Payers)
@@ -32,7 +33,8 @@ public class UpdateExpenseValidator : AbstractValidator<UpdateExpenseRequest>
             payer.RuleFor(p => p.MemberId)
                 .NotEmpty().WithMessage("Payer member ID is required.");
             payer.RuleFor(p => p.AmountPaid)
-                .GreaterThan(0).WithMessage("Amount paid must be greater than 0.");
+                .GreaterThan(0).WithMessage("Amount paid must be greater than 0.")
+                .PrecisionScale(18, 2, true).WithMessage("Amount paid can have at most 2 decimal places.");
         }).When(x => x.Payers is not null);
 
         RuleFor(x => x.ParticipantMemberIds)
