@@ -1,3 +1,5 @@
+using System.Numerics;
+
 namespace FairShare.Domain.Services;
 
 /// <summary>
@@ -8,7 +10,8 @@ public static class SplitCalculator
 {
     /// <summary>
     /// Calculates each member's balance (amount paid minus fair share) and the minimum set of
-    /// cash transfers needed to settle all debts within the group.
+    /// cash transfers needed to settle all debts within the group (exact for up to
+    /// <see cref="MaxExactSettlementMembers"/> non-zero balances, greedy beyond that).
     /// </summary>
     /// <param name="members">
     /// Snapshot of group members with their total amounts paid and fair share (the sum of their
@@ -32,8 +35,7 @@ public static class SplitCalculator
                 m.TotalAmountPaid - m.FairShare > 0))
             .ToList();
 
-        // Greedy debt simplification
-        var settlements = SimplifyDebts(balances);
+        var settlements = SettleDebts(balances);
 
         return new SplitResult(balances, settlements);
     }
@@ -88,12 +90,106 @@ public static class SplitCalculator
                 m.AmountPaid - m.ShareAmount > 0))
             .ToList();
 
-        return SimplifyDebts(balances);
+        return SettleDebts(balances);
     }
 
     /// <summary>
-    /// Greedy min-transaction algorithm: repeatedly match the largest creditor with the largest debtor
-    /// until all balances are settled.
+    /// Above this many non-zero balances the exact search (2^n subsets) gets too expensive, and
+    /// settlements fall back to plain greedy matching (at most n − 1 transfers, usually optimal).
+    /// </summary>
+    public const int MaxExactSettlementMembers = 16;
+
+    /// <summary>
+    /// Settles all balances with the fewest possible transfers.
+    /// </summary>
+    /// <remarks>
+    /// Any settlement plan connects people into groups whose balances cancel out, and a group of
+    /// k people needs at least k − 1 transfers. So the minimum is n − (the largest number of
+    /// disjoint zero-sum groups the n non-zero balances can be split into). Greedy matching on its
+    /// own ignores those groups: for +6, +5, −5, −3, −3 it makes 4 transfers where 3 suffice
+    /// (−5 → +5, then −3, −3 → +6). This finds the best split exactly, then settles each group
+    /// greedily, which takes at most k − 1 transfers per group.
+    /// </remarks>
+    private static List<Settlement> SettleDebts(List<MemberBalance> balances)
+    {
+        var open = balances.Where(b => ToCents(b.Balance) != 0).ToList();
+
+        if (open.Count > MaxExactSettlementMembers)
+            return SimplifyDebts(open);
+
+        return SplitIntoZeroSumGroups(open).SelectMany(group => SimplifyDebts(group)).ToList();
+    }
+
+    /// <summary>
+    /// Partitions the members into the largest possible number of groups whose balances each sum
+    /// to zero (any leftover from balances that don't net to zero overall becomes a final group).
+    /// </summary>
+    /// <remarks>
+    /// best[mask] = the most zero-sum prefixes any ordering of the members in <c>mask</c> can have,
+    /// built up by trying each member as the last one. Walking back from the full set recovers
+    /// an ordering in which the zero-sum groups sit next to each other. O(2^n · n).
+    /// </remarks>
+    private static List<List<MemberBalance>> SplitIntoZeroSumGroups(List<MemberBalance> members)
+    {
+        int n    = members.Count;
+        int full = (1 << n) - 1;
+        var cents = members.Select(m => ToCents(m.Balance)).ToArray();
+        var sum   = new long[full + 1];
+        var best  = new int[full + 1];
+
+        for (int mask = 1; mask <= full; mask++)
+        {
+            sum[mask] = sum[mask & (mask - 1)] + cents[BitOperations.TrailingZeroCount(mask)];
+
+            int bestWithoutLast = 0;
+            for (int i = 0; i < n; i++)
+                if ((mask & (1 << i)) != 0)
+                    bestWithoutLast = Math.Max(bestWithoutLast, best[mask ^ (1 << i)]);
+
+            best[mask] = bestWithoutLast + (sum[mask] == 0 ? 1 : 0);
+        }
+
+        // Recover the ordering, last member first.
+        var order = new List<int>(n);
+        for (int mask = full; mask != 0;)
+        {
+            int zero = sum[mask] == 0 ? 1 : 0;
+            int last = 0;
+            while ((mask & (1 << last)) == 0 || best[mask ^ (1 << last)] + zero != best[mask])
+                last++;
+
+            order.Add(last);
+            mask ^= 1 << last;
+        }
+        order.Reverse();
+
+        // Cut the ordering wherever the running total returns to zero.
+        var groups  = new List<List<MemberBalance>>();
+        var current = new List<MemberBalance>();
+        long running = 0;
+        foreach (int i in order)
+        {
+            current.Add(members[i]);
+            running += cents[i];
+            if (running == 0)
+            {
+                groups.Add(current);
+                current = [];
+            }
+        }
+        if (current.Count > 0)
+            groups.Add(current);
+
+        return groups;
+    }
+
+    private static long ToCents(decimal amount) =>
+        (long)Math.Round(amount * 100, MidpointRounding.AwayFromZero);
+
+    /// <summary>
+    /// Greedy matching: sorts creditors and debtors by size once, then pairs them off from the
+    /// top until all balances are settled. At most n − 1 transfers, but not always the minimum —
+    /// <see cref="SettleDebts"/> uses it within zero-sum groups, where it is.
     /// </summary>
     private static List<Settlement> SimplifyDebts(List<MemberBalance> balances)
     {
