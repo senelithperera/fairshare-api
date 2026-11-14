@@ -171,6 +171,8 @@ Each expense's shares are computed when the expense is saved (`SplitCalculator.S
 
 `FairShare.Tests/Application/ExpenseMemberIdValidationTests.cs` covers payer and participant ids: malformed and duplicate ids are rejected by the validators, and ids outside the group are rejected by the create/update use cases without saving (no more falling back to "everyone" for unknown participants).
 
+`FairShare.Tests/Application/UpdateExpensePayerSumTests.cs` covers partial expense updates: sending only `totalAmount` or only `payers` is rejected when the merged result no longer balances, and accepted when it does.
+
 ---
 
 ## Cross-Cutting Concerns
@@ -185,7 +187,7 @@ All request bodies are validated before reaching use cases. Validation errors re
 | `AddMemberValidator` | GuestName: required, max 80 |
 | `UpdateMemberValidator` | GuestName: max 80 if provided |
 | `CreateExpenseValidator` | Title: required, max 150; Amount: > 0, max 2 decimals; at least one payer; payer amounts must sum to total; payer and participant ids must be valid GUIDs with no duplicates |
-| `UpdateExpenseValidator` | Title: max 150 if provided; Amount: > 0, max 2 decimals if provided; payer amounts must sum to total if both provided; payer and participant ids must be valid GUIDs with no duplicates |
+| `UpdateExpenseValidator` | Title: max 150 if provided; Amount: > 0, max 2 decimals if provided; payer amounts must sum to total if both provided; payer and participant ids must be valid GUIDs with no duplicates. When only one of total/payers is sent, `UpdateExpenseUseCase` checks the merged result against the stored value (`PayerSumMismatch` → 400 `errors.Payers`) |
 | `RegisterValidator` | Name: required, max 100; Email: valid format, max 255; Password: min 8, 1 uppercase, 1 digit |
 | `LoginValidator` | Email: required, valid format; Password: required |
 
