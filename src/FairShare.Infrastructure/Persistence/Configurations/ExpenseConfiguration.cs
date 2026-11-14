@@ -21,9 +21,7 @@ internal sealed class ExpenseConfiguration : IEntityTypeConfiguration<Expense>
             .HasColumnType("numeric(18,2)");
 
         builder.Property(e => e.CreatedAt).IsRequired();
-        builder.Property(e => e.IsDeleted).HasDefaultValue(false);
 
-        // Note: query filter for IsDeleted is set on the DbContext level
         builder.HasMany(e => e.Payers)
             .WithOne(p => p.Expense)
             .HasForeignKey(p => p.ExpenseId)

@@ -7,14 +7,13 @@ namespace FairShare.Domain.Services;
 public static class SplitCalculator
 {
     /// <summary>
-    /// Calculates each member's fair share (respecting <see cref="MemberInput.BudgetCap"/>),
-    /// their resulting balance, and the minimum set of cash transfers needed to settle all
-    /// debts within the group.
+    /// Calculates each member's balance (amount paid minus fair share) and the minimum set of
+    /// cash transfers needed to settle all debts within the group.
     /// </summary>
     /// <param name="members">
-    /// Snapshot of group members with their caps, total amounts paid, and raw fair share
-    /// (the sum of their real per-expense split amounts — already respects which expenses
-    /// each member actually participated in).
+    /// Snapshot of group members with their total amounts paid and fair share (the sum of their
+    /// real per-expense split amounts — already respects which expenses each member actually
+    /// participated in).
     /// </param>
     /// <returns>
     /// A <see cref="SplitResult"/> containing per-member balances and a simplified settlement list.
@@ -24,56 +23,16 @@ public static class SplitCalculator
         if (members.Count == 0)
             return new SplitResult([], []);
 
-        // STEP 1 — partition members
-        var cappedMembers   = members.Where(m => m.BudgetCap.HasValue).ToList();
-        var uncappedMembers = members.Where(m => !m.BudgetCap.HasValue).ToList();
-
-        // A cap can only be enforced if there's at least one uncapped member to absorb the
-        // resulting excess — otherwise there's nowhere for the money to go, so caps are
-        // treated as unenforceable and everyone just owes their raw share (this also keeps
-        // the group's total fair share equal to the total raw share, so balances net to zero).
-        bool canEnforceCaps = uncappedMembers.Count > 0;
-
-        var fairShare = new Dictionary<Guid, decimal>();
-        decimal excessPool = 0m;
-
-        // STEP 2 — capped members contribute at most their cap; anything their raw share
-        // would have owed beyond that spills into a pool redistributed to uncapped members.
-        foreach (var m in cappedMembers)
-        {
-            if (canEnforceCaps && m.RawFairShare > m.BudgetCap!.Value)
-            {
-                fairShare[m.MemberId] = m.BudgetCap.Value;
-                excessPool += m.RawFairShare - m.BudgetCap.Value;
-            }
-            else
-            {
-                fairShare[m.MemberId] = m.RawFairShare;
-            }
-        }
-
-        // STEP 3 — uncapped members start from their raw share
-        foreach (var m in uncappedMembers)
-            fairShare[m.MemberId] = m.RawFairShare;
-
-        // STEP 4 — spread the excess pool equally across uncapped members
-        if (excessPool > 0 && uncappedMembers.Count > 0)
-        {
-            var extras = SplitEvenly(excessPool, uncappedMembers.Count);
-            for (int i = 0; i < uncappedMembers.Count; i++)
-                fairShare[uncappedMembers[i].MemberId] += extras[i];
-        }
-
-        // STEP 5 — balance per member (positive = creditor, negative = debtor)
+        // Balance per member (positive = creditor, negative = debtor)
         var balances = members
             .Select(m => new MemberBalance(
                 m.MemberId,
                 m.Name,
-                m.TotalAmountPaid - fairShare[m.MemberId],
-                m.TotalAmountPaid - fairShare[m.MemberId] > 0))
+                m.TotalAmountPaid - m.FairShare,
+                m.TotalAmountPaid - m.FairShare > 0))
             .ToList();
 
-        // STEP 6 — greedy debt simplification
+        // Greedy debt simplification
         var settlements = SimplifyDebts(balances);
 
         return new SplitResult(balances, settlements);
@@ -199,13 +158,12 @@ public static class SplitCalculator
 /// <summary>Input record for a group member passed into <see cref="SplitCalculator"/>.</summary>
 /// <param name="MemberId">Unique identifier of the group member.</param>
 /// <param name="Name">Display name.</param>
-/// <param name="BudgetCap">Optional spending cap. Null means uncapped.</param>
 /// <param name="TotalAmountPaid">Sum of all amounts this member has paid across all expenses.</param>
-/// <param name="RawFairShare">
+/// <param name="FairShare">
 /// Sum of this member's real per-expense split amounts (<c>ExpenseSplit.ShareAmount</c>)
-/// across all active expenses. Naturally excludes expenses the member didn't participate in.
+/// across all expenses. Naturally excludes expenses the member didn't participate in.
 /// </param>
-public record MemberInput(Guid MemberId, string Name, decimal? BudgetCap, decimal TotalAmountPaid, decimal RawFairShare);
+public record MemberInput(Guid MemberId, string Name, decimal TotalAmountPaid, decimal FairShare);
 
 /// <summary>Input record for <see cref="SplitCalculator.CalculateExpenseSettlements"/>.</summary>
 /// <param name="MemberId">Unique identifier of the group member.</param>

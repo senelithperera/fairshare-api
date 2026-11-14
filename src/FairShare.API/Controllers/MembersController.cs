@@ -55,7 +55,7 @@ public class MembersController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, result);
     }
 
-    /// <summary>Updates a guest member's name or budget cap.</summary>
+    /// <summary>Updates a guest member's name.</summary>
     /// <response code="200">Member updated.</response>
     /// <response code="400">Validation error.</response>
     /// <response code="404">Group or member not found.</response>

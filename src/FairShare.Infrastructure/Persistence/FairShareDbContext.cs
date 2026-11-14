@@ -23,7 +23,6 @@ public class FairShareDbContext : DbContext
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(FairShareDbContext).Assembly);
 
         // Global query filters
-        modelBuilder.Entity<Expense>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<Group>().HasQueryFilter(g => !g.IsArchived);
     }
 }

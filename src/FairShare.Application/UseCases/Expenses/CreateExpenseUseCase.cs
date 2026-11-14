@@ -30,17 +30,26 @@ public class CreateExpenseUseCase
     /// <param name="guestToken">Group guest token.</param>
     /// <param name="request">Expense details.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>Full expense response or null when the group is not found.</returns>
-    public async Task<ExpenseResponse?> ExecuteAsync(
+    /// <returns>The created expense, or NotFound / PayerNotInGroup.</returns>
+    public async Task<ExpenseResult> ExecuteAsync(
         Guid guestToken,
         CreateExpenseRequest request,
         CancellationToken ct = default)
     {
         var group = await _groups.GetByGuestTokenAsync(guestToken, ct);
-        if (group is null) return null;
+        if (group is null) return ExpenseResult.NotFound;
 
         var allMembers = await _members.GetByGroupIdAsync(group.Id, ct);
-        var participants = ResolveParticipants(request.ParticipantMemberIds, allMembers);
+
+        // Member ids are well-formed GUIDs here (enforced by the validator).
+        if (request.Payers.Any(p => allMembers.All(m => m.Id != Guid.Parse(p.MemberId))))
+            return ExpenseResult.PayerNotInGroup;
+
+        // Null means "everyone in the group".
+        var participants = request.ParticipantMemberIds is null
+            ? allMembers
+            : ResolveParticipants(request.ParticipantMemberIds, allMembers);
+        if (participants is null) return ExpenseResult.ParticipantNotInGroup;
 
         var payers = request.Payers.Select(p => new ExpensePayer
         {
@@ -57,7 +66,6 @@ public class CreateExpenseUseCase
             TotalAmount       = request.TotalAmount,
             CreatedByMemberId = null,
             CreatedAt         = DateTime.UtcNow,
-            IsDeleted         = false,
             Payers            = payers,
             Splits            = BuildExpenseSplits(Guid.Empty, participants, request.TotalAmount)
         };
@@ -71,21 +79,20 @@ public class CreateExpenseUseCase
 
         _logger.LogInformation("Created expense {ExpenseId} in group {GroupId}", expense.Id, group.Id);
 
-        return MapToResponse(expense, allMembers);
+        return ExpenseResult.Success(MapToResponse(expense, allMembers));
     }
 
     /// <summary>
-    /// Resolves which members participate in the split. Null means "everyone in the group".
-    /// Falls back to everyone if the supplied ids don't match any current member.
+    /// Resolves the supplied ids to group members (in join order), or null if any id isn't a
+    /// current member of the group. Ids are well-formed GUIDs here (enforced by the validator).
     /// </summary>
-    private static IReadOnlyList<GroupMember> ResolveParticipants(
-        IReadOnlyList<string>? participantMemberIds,
+    private static IReadOnlyList<GroupMember>? ResolveParticipants(
+        IReadOnlyList<string> participantMemberIds,
         IReadOnlyList<GroupMember> allMembers)
     {
-        if (participantMemberIds is null) return allMembers;
-
-        var filtered = allMembers.Where(m => participantMemberIds.Contains(m.Id.ToString())).ToList();
-        return filtered.Count > 0 ? filtered : allMembers;
+        var ids = participantMemberIds.Select(Guid.Parse).ToHashSet();
+        var participants = allMembers.Where(m => ids.Contains(m.Id)).ToList();
+        return participants.Count == ids.Count ? participants : null;
     }
 
     private static List<ExpenseSplit> BuildExpenseSplits(

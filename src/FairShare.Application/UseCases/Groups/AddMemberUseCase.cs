@@ -37,7 +37,6 @@ public class AddMemberUseCase
             Id        = Guid.NewGuid(),
             GroupId   = group.Id,
             GuestName = request.GuestName.Trim(),
-            BudgetCap = request.BudgetCap,
             JoinedAt  = DateTime.UtcNow
         };
 
@@ -49,7 +48,6 @@ public class AddMemberUseCase
         return new GroupMemberResponse(
             member.Id.ToString(),
             member.GuestName,
-            member.BudgetCap,
             0m,
             member.JoinedAt.ToString("o"));
     }

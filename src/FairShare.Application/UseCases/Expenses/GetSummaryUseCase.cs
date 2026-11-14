@@ -52,7 +52,6 @@ public class GetSummaryUseCase
         var memberInputs = allMembers.Select(m => new MemberInput(
             m.Id,
             memberNames[m.Id],
-            m.BudgetCap,
             paidPerMember.GetValueOrDefault(m.Id, 0m),
             sharePerMember.GetValueOrDefault(m.Id, 0m))).ToList();
 

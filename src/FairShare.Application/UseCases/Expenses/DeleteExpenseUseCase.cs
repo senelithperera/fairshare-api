@@ -5,7 +5,7 @@ namespace FairShare.Application.UseCases.Expenses;
 /// <summary>Result codes for the delete-expense operation.</summary>
 public enum DeleteExpenseResult { Success, GroupNotFound, ExpenseNotFound }
 
-/// <summary>Soft-deletes an expense by setting <c>IsDeleted = true</c>.</summary>
+/// <summary>Permanently deletes an expense; its payer and split rows are removed by cascade.</summary>
 public class DeleteExpenseUseCase
 {
     private readonly IGroupRepository _groups;
@@ -30,8 +30,7 @@ public class DeleteExpenseUseCase
         if (expense is null || expense.GroupId != group.Id)
             return DeleteExpenseResult.ExpenseNotFound;
 
-        expense.IsDeleted = true;
-        _expenses.Update(expense);
+        _expenses.Remove(expense);
         await _expenses.SaveChangesAsync(ct);
 
         return DeleteExpenseResult.Success;

@@ -14,9 +14,6 @@ internal sealed class GroupMemberConfiguration : IEntityTypeConfiguration<GroupM
 
         builder.Property(m => m.GuestName).HasMaxLength(80);
 
-        builder.Property(m => m.BudgetCap)
-            .HasColumnType("numeric(18,2)");
-
         builder.Property(m => m.JoinedAt).IsRequired();
 
         builder.HasMany(m => m.PayerRecords)

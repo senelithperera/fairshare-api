@@ -50,7 +50,7 @@ FairShare lets a group of people track shared expenses and instantly calculate w
 **Key capabilities:**
 
 - Create expense groups with a single POST — no signup required
-- Add members with optional per-member spending caps
+- Add members to a group
 - Record expenses with multiple payers and automatic split calculation
 - Get a settlement summary: the minimum number of transfers to zero out all debts
 - Promote a guest group to an authenticated account at any time
@@ -177,9 +177,12 @@ All settings live in `src/FairShare.API/appsettings.Development.json` for local 
     "Key":      "dev-secret-key-replace-in-production-must-be-32chars",
     "Issuer":   "FairShare",
     "Audience": "FairShareClients"
-  }
+  },
+  "AllowedOrigins": "http://localhost:5173"   // comma-separated CORS origins (the Vite dev server)
 }
 ```
+
+> **CORS:** only the origins listed in `AllowedOrigins` may call the API from a browser. The base `appsettings.json` does not set it, so outside Development no cross-origin requests are allowed until you configure it.
 
 > **Production:** replace `Jwt:Key` with a cryptographically random string of at least 32 characters. Never commit production secrets — use environment variables or a secrets manager.
 
@@ -256,14 +259,13 @@ DELETE  /api/groups/{guestToken}/members/{memberId}
 
 ```jsonc
 // Request body
-{ "guestName": "Alice", "budgetCap": 5000.00 }
-// budgetCap is optional. When set, Alice's maximum fair share is 5000.00
+{ "guestName": "Alice" }
 ```
 
-**PATCH** — Update name or cap (all fields optional)
+**PATCH** — Update a member's name
 
 ```jsonc
-{ "guestName": "Alice K.", "budgetCap": 6000.00 }
+{ "guestName": "Alice K." }
 ```
 
 **DELETE** — Removes a member. Returns `409 Conflict` if the member has any associated expense records.
@@ -287,12 +289,16 @@ DELETE  /api/groups/{guestToken}/expenses/{expenseId}
   "totalAmount": 30000.00,
   "payers": [
     { "memberId": "uuid-alice", "amountPaid": 30000.00 }
-  ]
+  ],
+  "participantMemberIds": ["uuid-alice", "uuid-bob", "uuid-carol"]   // optional — omit to split among everyone
 }
 // Sum of payers[].amountPaid must equal totalAmount
+// Every payer and participant must be a member of the group (400 otherwise)
 ```
 
-**DELETE** — Soft-deletes the expense (`IsDeleted = true`). Never physically removed.
+**PUT** — Update an expense. Every field is optional; omitted fields are kept (omitting `participantMemberIds` keeps the current participants). Splits are always recalculated.
+
+**DELETE** — Permanently deletes the expense; its payer and split rows are removed by cascade.
 
 ---
 
@@ -315,9 +321,20 @@ Runs the split calculation engine and returns:
   "settlements": [
     { "fromMemberId": "...", "from": "Bob",   "toMemberId": "...", "to": "Alice", "amount": 30000.00 },
     { "fromMemberId": "...", "from": "Carol", "toMemberId": "...", "to": "Alice", "amount": 30000.00 }
+  ],
+  "detailedSettlements": [
+    {
+      "expenseId": "...", "expenseTitle": "Hotel",
+      "settlements": [
+        { "fromMemberId": "...", "from": "Bob", "toMemberId": "...", "to": "Alice", "amount": 30000.00 }
+      ]
+    }
   ]
 }
 ```
+
+- `settlements` — group-wide, netted across all expenses (fewest transfers).
+- `detailedSettlements` — the same greedy matching run per expense, with no cross-expense netting, so every pairing is between people who actually shared that expense. Expenses that need no transfers are omitted.
 
 ---
 
@@ -410,23 +427,18 @@ GET   /api/users/me/groups
 
 The `SplitCalculator` (`src/FairShare.Domain/Services/SplitCalculator.cs`) is a **pure static domain service** with zero infrastructure or EF dependencies — fully unit-testable in isolation.
 
-Split mode is determined at the **group level** through member `BudgetCap` values, not per-expense. Expenses simply record who paid what; the calculator works out fair shares and settlements across all expenses at once.
+Each expense is split equally among the members selected as its participants, and the shares are stored as `ExpenseSplit` rows (see `SplitCalculator.SplitEvenly`). The summary then works out balances and settlements across all expenses at once.
 
 ### How it works
 
-Given all group members (with their caps and total amounts paid across all expenses) and the total spent, the algorithm runs in 9 steps:
-
 | Step | What happens |
 |---|---|
-| 1 | `totalSpent` = sum of all active expense amounts |
-| 2 | Partition members: **capped** (have `BudgetCap`) vs **uncapped** |
-| 3 | `cappedTotal` = sum of all caps |
-| 4 | If `cappedTotal >= totalSpent` → ignore all caps, fall back to full equal split |
-| 5 | `equalShare = (totalSpent − cappedTotal) / uncappedCount`; remainder assigned to first uncapped member |
-| 6 | Capped members owe their `BudgetCap`; uncapped members owe `equalShare` |
-| 7 | `balance = amountPaid − fairShare` — positive = creditor, negative = debtor |
-| 8 | **Greedy debt simplification** — repeatedly match largest creditor with largest debtor; minimises total number of transfers |
-| 9 | Return `MemberBalance[]` + `Settlement[]` |
+| 1 | `totalSpent` = sum of all expense amounts |
+| 2 | **Paid** per member = sum of their `ExpensePayer.AmountPaid` rows |
+| 3 | **Fair share** per member = sum of their `ExpenseSplit.ShareAmount` rows (members excluded from an expense have no split row for it) |
+| 4 | `balance = paid − fairShare` — positive = creditor, negative = debtor |
+| 5 | **Greedy debt simplification** — repeatedly match largest creditor with largest debtor; produces at most n − 1 transfers |
+| 6 | Return `MemberBalance[]` + `Settlement[]` |
 
 ### Example
 
@@ -447,11 +459,9 @@ Settlements:
 
 | Scenario | Behaviour |
 |---|---|
-| `cappedTotal >= totalSpent` | All caps ignored; full equal split |
-| Member paid more than their cap | Treated as a creditor — excess counts toward offsetting debtors |
 | Single member | No settlements returned |
 | Zero total spent | All balances are zero |
-| Rounding (e.g. 10 ÷ 3) | Remainder assigned to first eligible member; net balance always sums to zero |
+| Rounding (e.g. 10 ÷ 3) | Shares are whole cents; leftover cents go one each to the earliest-joined participants, so shares always sum to the total and balances net to zero |
 
 ---
 
@@ -477,14 +487,16 @@ All errors follow [RFC 7807 Problem Details](https://www.rfc-editor.org/rfc/rfc7
   "type":    "https://tools.ietf.org/html/rfc7807",
   "title":   "One or more validation errors occurred.",
   "status":  400,
-  "detail":  "See 'errors' for field-level details.",
   "traceId": "00-abc123...",
   "errors": {
-    "title":       ["Title is required."],
-    "totalAmount": ["Total amount must be greater than 0."]
+    "Title":                ["Title is required."],
+    "TotalAmount":          ["Total amount must be greater than 0."],
+    "Payers[0].AmountPaid": ["Amount paid can have at most 2 decimal places."]
   }
 }
 ```
+
+> **Note:** `errors` keys are the C# property paths in **PascalCase** (`Title`, `TotalAmount`, `Payers[0].AmountPaid`, `ParticipantMemberIds`, `GuestName`) — the camelCase naming policy does not apply to dictionary keys. Match them case-insensitively on the client.
 
 | Status | When |
 |---|---|
@@ -504,8 +516,8 @@ All errors follow [RFC 7807 Problem Details](https://www.rfc-editor.org/rfc/rfc7
 | IDs | GUID strings |
 | Dates | ISO 8601 UTC — e.g. `"2026-02-26T10:00:00.0000000Z"` |
 | Amounts | `decimal`, 2 decimal places |
-| Enums | String values — e.g. `"Equal"`, not `0` |
-| List responses | `{ "data": [...], "count": N }` |
+| Enums | Serialised as strings (`JsonStringEnumConverter`); no current response contains an enum |
+| Top-level list responses | `{ "data": [...], "count": N }` (e.g. `GET /api/users/me/groups`); lists nested inside an object are plain arrays |
 
 ---
 
@@ -515,13 +527,12 @@ All errors follow [RFC 7807 Problem Details](https://www.rfc-editor.org/rfc/rfc7
 dotnet test tests/FairShare.Tests
 ```
 
-The test suite covers 15 scenarios for `SplitCalculator`:
+The test suite covers `SplitCalculator` and expense payer validation:
 
 - Equal split with one payer / multiple payers
-- Capped split with one and multiple capped members
-- Fallback to equal split when caps exceed total
-- Member paid more than their cap (becomes creditor)
-- Rounding — net balance always sums to zero
+- Participant exclusion (excluded members owe nothing for that expense)
+- Rounding — whole-cent shares that sum to the total; net balance always sums to zero
+- Payer and participant validation — malformed, duplicate and out-of-group member ids are rejected
 - Edge cases: no members, single member, zero total, all members balanced
 
 ---
@@ -548,8 +559,7 @@ User ─────────────────────────
                      userId          title, totalAmount
                       (nullable      createdByMemberId (FK → GroupMember)
                        FK → User)    createdAt
-                     guestName       isDeleted ← global query filter
-                     budgetCap             │
+                     guestName             │
                      joinedAt              │
                         │      ┌───────────┴──────────┐
                         │      │                      │
@@ -560,8 +570,8 @@ User ─────────────────────────
                              amountPaid             shareAmount
 ```
 
-**Soft-delete strategy**
-- `Expense.IsDeleted = true` — excluded via EF Core global query filter
+**Delete strategy**
+- Expenses are hard-deleted; their payer and split rows are removed by cascade
 - `Group.IsArchived = true` — excluded via EF Core global query filter
 - Members are hard-deleted but blocked if they have any linked expense records
 
@@ -573,7 +583,7 @@ User ─────────────────────────
 
 | Item | Decision |
 |---|---|
-| Per-expense `SplitMode` field | **Removed.** Expenses record who paid what — split fairness is a group-level concern handled by member `BudgetCap` values in the `SplitCalculator`. Storing a mode per expense added complexity with no functional effect. Migration `RemoveSplitMode` dropped the column. |
+| Per-expense `SplitMode` field | **Removed.** Every expense is split equally among its selected participants; storing a mode per expense added complexity with no functional effect. Migration `RemoveSplitMode` dropped the column. |
 | `?createdByMemberId` query param on `POST /expenses` | **Deferred to Phase 2.** In the guest flow there is no identity, so the field cannot be reliably populated. The column remains on the `Expense` entity for Phase 2 use. |
 
 ### Remaining open item

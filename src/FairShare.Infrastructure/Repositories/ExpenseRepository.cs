@@ -35,6 +35,9 @@ public class ExpenseRepository : IExpenseRepository
     public void Update(Expense expense) => _db.Expenses.Update(expense);
 
     /// <inheritdoc/>
+    public void Remove(Expense expense) => _db.Expenses.Remove(expense);
+
+    /// <inheritdoc/>
     public void RemovePayers(IEnumerable<ExpensePayer> payers) => _db.ExpensePayers.RemoveRange(payers);
 
     /// <inheritdoc/>

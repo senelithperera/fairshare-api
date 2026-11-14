@@ -18,13 +18,6 @@ public class GroupMember
     /// <summary>Display name for guest members. Required when <see cref="UserId"/> is null.</summary>
     public string? GuestName { get; set; }
 
-    /// <summary>
-    /// Optional spending cap in group currency.
-    /// When set, this member pays at most this amount; uncapped members share the remainder equally.
-    /// Null means the member is treated as uncapped.
-    /// </summary>
-    public decimal? BudgetCap { get; set; }
-
     /// <summary>UTC timestamp when the member joined the group.</summary>
     public DateTime JoinedAt { get; set; }
 

@@ -7,11 +7,11 @@ namespace FairShare.Tests.Domain;
 /// Unit tests for <see cref="SplitCalculator"/>.
 /// Each test covers a distinct scenario; no infrastructure or EF dependencies.
 ///
-/// <see cref="MemberInput.RawFairShare"/> stands in for "sum of this member's real
+/// <see cref="MemberInput.FairShare"/> stands in for "sum of this member's real
 /// ExpenseSplit rows" — in production that's computed by GetSummaryUseCase from actual
 /// persisted splits, which is exactly what makes per-expense participant exclusion
 /// naturally flow through to these balances (an excluded member has no split row, so
-/// their raw share for that expense is 0).
+/// their share for that expense is 0).
 /// </summary>
 public class SplitCalculatorTests
 {
@@ -19,14 +19,14 @@ public class SplitCalculatorTests
     // Helpers
     // ─────────────────────────────────────────────────
 
-    private static MemberInput Member(string name, decimal? cap, decimal paid, decimal rawFairShare)
-        => new(Guid.NewGuid(), name, cap, paid, rawFairShare);
+    private static MemberInput Member(string name, decimal paid, decimal fairShare)
+        => new(Guid.NewGuid(), name, paid, fairShare);
 
     /// <summary>
     /// The same whole-cent equal split that CreateExpenseUseCase/UpdateExpenseUseCase persist
     /// as ExpenseSplit rows.
     /// </summary>
-    private static IReadOnlyList<decimal> EqualRawShares(decimal total, int count)
+    private static IReadOnlyList<decimal> EqualShares(decimal total, int count)
         => SplitCalculator.SplitEvenly(total, count);
 
     // ─────────────────────────────────────────────────
@@ -38,9 +38,9 @@ public class SplitCalculatorTests
     {
         // Alice paid 90, Bob paid 0, Carol paid 0. Total = 90, split equally between all three.
         // Each owes 30. Alice is creditor (+60), Bob debtor (-30), Carol debtor (-30).
-        var alice = Member("Alice", null, 90m, 30m);
-        var bob   = Member("Bob",   null,  0m, 30m);
-        var carol = Member("Carol", null,  0m, 30m);
+        var alice = Member("Alice", 90m, 30m);
+        var bob   = Member("Bob", 0m, 30m);
+        var carol = Member("Carol", 0m, 30m);
         var members = new[] { alice, bob, carol };
 
         var result = SplitCalculator.Calculate(members);
@@ -64,9 +64,9 @@ public class SplitCalculatorTests
     [Fact]
     public void EqualSplit_ThreeMembers_SettlementsAreMinimal()
     {
-        var alice = Member("Alice", null, 90m, 30m);
-        var bob   = Member("Bob",   null,  0m, 30m);
-        var carol = Member("Carol", null,  0m, 30m);
+        var alice = Member("Alice", 90m, 30m);
+        var bob   = Member("Bob", 0m, 30m);
+        var carol = Member("Carol", 0m, 30m);
 
         var result = SplitCalculator.Calculate(new[] { alice, bob, carol });
 
@@ -81,8 +81,8 @@ public class SplitCalculatorTests
     {
         // Alice paid 70, Bob paid 30. Total = 100. Each owes 50.
         // Alice: +20 (creditor), Bob: -20 (debtor).
-        var alice = Member("Alice", null, 70m, 50m);
-        var bob   = Member("Bob",   null, 30m, 50m);
+        var alice = Member("Alice", 70m, 50m);
+        var bob   = Member("Bob", 30m, 50m);
 
         var result = SplitCalculator.Calculate(new[] { alice, bob });
 
@@ -103,10 +103,10 @@ public class SplitCalculatorTests
     public void Exclusion_MemberNotInSplit_OwesNothingForThatExpense()
     {
         // A single $90 expense split only between Alice and Bob — Carol was excluded, so
-        // she has no ExpenseSplit row and her raw fair share is 0.
-        var alice = Member("Alice", null, 90m, 45m);
-        var bob   = Member("Bob",   null,  0m, 45m);
-        var carol = Member("Carol", null,  0m,  0m);
+        // she has no ExpenseSplit row and her fair share is 0.
+        var alice = Member("Alice", 90m, 45m);
+        var bob   = Member("Bob", 0m, 45m);
+        var carol = Member("Carol", 0m,  0m);
 
         var result = SplitCalculator.Calculate(new[] { alice, bob, carol });
 
@@ -126,133 +126,15 @@ public class SplitCalculatorTests
     {
         // Dave treats the others but isn't part of the split himself (e.g. he already ate).
         // $60 expense split between Bob and Carol only; Dave paid the full amount.
-        var dave  = Member("Dave",  null, 60m,  0m);
-        var bob   = Member("Bob",   null,  0m, 30m);
-        var carol = Member("Carol", null,  0m, 30m);
+        var dave  = Member("Dave", 60m,  0m);
+        var bob   = Member("Bob", 0m, 30m);
+        var carol = Member("Carol", 0m, 30m);
 
         var result = SplitCalculator.Calculate(new[] { dave, bob, carol });
 
         result.MemberBalances.Single(b => b.MemberId == dave.MemberId).Balance.Should().Be(60m);
         result.MemberBalances.Single(b => b.MemberId == bob.MemberId).Balance.Should().Be(-30m);
         result.MemberBalances.Single(b => b.MemberId == carol.MemberId).Balance.Should().Be(-30m);
-    }
-
-    // ─────────────────────────────────────────────────
-    // Capped Split
-    // ─────────────────────────────────────────────────
-
-    [Fact]
-    public void CappedSplit_OneCappedOneUncapped_SharesAreCorrect()
-    {
-        // Total = 100 split equally between Dave and Eve → raw share 50 each. Dave paid the
-        // whole bill. Dave capped at 20 → his raw (50) exceeds his cap, so he only owes 20;
-        // the 30 excess spills onto the only uncapped member, Eve (50 + 30 = 80).
-        var dave = Member("Dave", 20m, 100m, 50m);
-        var eve  = Member("Eve",  null,   0m, 50m);
-
-        var result = SplitCalculator.Calculate(new[] { dave, eve });
-
-        result.MemberBalances.Single(b => b.MemberId == dave.MemberId).Balance.Should().Be(80m);
-        result.MemberBalances.Single(b => b.MemberId == eve.MemberId).Balance.Should().Be(-80m);
-
-        result.Settlements.Should().HaveCount(1);
-        result.Settlements[0].Amount.Should().Be(80m);
-        result.Settlements[0].FromMemberId.Should().Be(eve.MemberId);
-        result.Settlements[0].ToMemberId.Should().Be(dave.MemberId);
-    }
-
-    [Fact]
-    public void CappedSplit_MultipleCappedAndUncapped()
-    {
-        // Total = 300 split equally three ways → raw share 100 each.
-        // Frank: cap=40, raw=100 → fair share=40, excess=60
-        // Grace: cap=60, raw=100 → fair share=60, excess=40
-        // Henry: no cap, raw=100 → absorbs both excesses: 100+60+40=200
-        var frank = Member("Frank", 40m, 40m, 100m);
-        var grace = Member("Grace", 60m, 60m, 100m);
-        var henry = Member("Henry", null, 200m, 100m);
-
-        var result = SplitCalculator.Calculate(new[] { frank, grace, henry });
-
-        result.MemberBalances.Should().AllSatisfy(b => b.Balance.Should().Be(0m));
-        result.Settlements.Should().BeEmpty();
-    }
-
-    [Fact]
-    public void CappedSplit_RawShareBelowCap_CapNotApplied()
-    {
-        // Dave has a generous $50 cap but only participates in a $20 expense split with Eve,
-        // so his real fair share (10) never reaches the cap — he owes exactly his raw share,
-        // not an amount bumped up to match the cap.
-        var dave = Member("Dave", 50m, 0m, 10m);
-        var eve  = Member("Eve",  null, 20m, 10m);
-
-        var result = SplitCalculator.Calculate(new[] { dave, eve });
-
-        result.MemberBalances.Single(b => b.MemberId == dave.MemberId).Balance.Should().Be(-10m);
-        result.MemberBalances.Single(b => b.MemberId == eve.MemberId).Balance.Should().Be(10m);
-
-        result.Settlements.Should().HaveCount(1);
-        result.Settlements[0].FromMemberId.Should().Be(dave.MemberId);
-        result.Settlements[0].ToMemberId.Should().Be(eve.MemberId);
-        result.Settlements[0].Amount.Should().Be(10m);
-    }
-
-    [Fact]
-    public void CappedSplit_WithUnequalRawShares_ExcessRedistributedEquallyAmongUncapped()
-    {
-        // Frank capped at 15 but his real participation gives him a raw share of 25 (10 over
-        // cap). Grace and Henry are uncapped with raw shares of 20 each; they split Frank's
-        // 10 excess equally (+5 each).
-        var frank = Member("Frank", 15m, 25m, 25m);
-        var grace = Member("Grace", null, 20m, 20m);
-        var henry = Member("Henry", null, 20m, 20m);
-
-        var result = SplitCalculator.Calculate(new[] { frank, grace, henry });
-
-        result.MemberBalances.Single(b => b.MemberId == frank.MemberId).Balance.Should().Be(10m);
-        result.MemberBalances.Single(b => b.MemberId == grace.MemberId).Balance.Should().Be(-5m);
-        result.MemberBalances.Single(b => b.MemberId == henry.MemberId).Balance.Should().Be(-5m);
-
-        result.MemberBalances.Sum(b => b.Balance).Should().Be(0m);
-    }
-
-    // ─────────────────────────────────────────────────
-    // Caps Unenforceable — no uncapped member to absorb excess
-    // ─────────────────────────────────────────────────
-
-    [Fact]
-    public void CappedSplit_AllMembersCapped_FallsBackToRawShares()
-    {
-        // Both members are capped at 10, but their raw share (30 each, from an equal
-        // $60 split, which A paid in full) exceeds that. With no uncapped member to absorb
-        // the excess, caps are unenforceable and everyone just owes their raw share.
-        var a = Member("A", 10m, 60m, 30m);
-        var b = Member("B", 10m,  0m, 30m);
-
-        var result = SplitCalculator.Calculate(new[] { a, b });
-
-        result.MemberBalances.Single(x => x.MemberId == a.MemberId).Balance.Should().Be(30m);
-        result.MemberBalances.Single(x => x.MemberId == b.MemberId).Balance.Should().Be(-30m);
-    }
-
-    [Fact]
-    public void CappedSplit_CapsExceedRawShare_FallsBackToEqualSplit()
-    {
-        // Both capped well above their actual raw share (25 each, from an equal $50 split) —
-        // caps never bind, so it behaves like a plain equal split.
-        var ivan = Member("Ivan", 80m, 50m, 25m);
-        var judy = Member("Judy", 70m,  0m, 25m);
-
-        var result = SplitCalculator.Calculate(new[] { ivan, judy });
-
-        result.MemberBalances.Single(x => x.MemberId == ivan.MemberId).Balance.Should().Be(25m);
-        result.MemberBalances.Single(x => x.MemberId == judy.MemberId).Balance.Should().Be(-25m);
-
-        result.Settlements.Should().HaveCount(1);
-        result.Settlements[0].Amount.Should().Be(25m);
-        result.Settlements[0].FromMemberId.Should().Be(judy.MemberId);
-        result.Settlements[0].ToMemberId.Should().Be(ivan.MemberId);
     }
 
     // ─────────────────────────────────────────────────
@@ -294,9 +176,9 @@ public class SplitCalculatorTests
     {
         // 15000 split nine ways — the real-data case where the old split stored
         // 1666.67 × 9 = 15000.03 and the last debtor's settlement was silently cut to 1666.64.
-        var shares  = EqualRawShares(15000m, 9);
+        var shares  = EqualShares(15000m, 9);
         var members = shares
-            .Select((share, i) => Member($"M{i}", null, i == 0 ? 15000m : 0m, share))
+            .Select((share, i) => Member($"M{i}", i == 0 ? 15000m : 0m, share))
             .ToList();
 
         var result = SplitCalculator.Calculate(members);
@@ -307,50 +189,6 @@ public class SplitCalculatorTests
         foreach (var debtor in result.MemberBalances.Where(b => b.Balance < 0))
             result.Settlements.Single(s => s.FromMemberId == debtor.MemberId)
                 .Amount.Should().Be(-debtor.Balance);
-    }
-
-    [Fact]
-    public void CappedSplit_Rounding_BalancesNetToExactlyZero()
-    {
-        // Total = 100 split three ways: 33.34 / 33.33 / 33.33.
-        var shares = EqualRawShares(100m, 3);
-        var capped    = Member("Capped",    1m,  1m, shares[0]);
-        var uncapped1 = Member("Uncapped1", null, 0m, shares[1]);
-        var uncapped2 = Member("Uncapped2", null, 99m, shares[2]);
-
-        var result = SplitCalculator.Calculate(new[] { capped, uncapped1, uncapped2 });
-
-        result.MemberBalances.Sum(x => x.Balance).Should().Be(0m);
-    }
-
-    // ─────────────────────────────────────────────────
-    // Creditor Paid More Than Cap
-    // ─────────────────────────────────────────────────
-
-    [Fact]
-    public void CappedSplit_MemberPaidMoreThanCap_TreatedAsCreditor()
-    {
-        // Total = 100 split equally → raw share 50 each.
-        // Kate: cap=20, paid=80 (over cap). fair share=20, balance=+60 (creditor).
-        // Liam: no cap, paid=20. Absorbs Kate's 30 excess: fair share=50+30=80, balance=-60.
-        var kate = Member("Kate", 20m, 80m, 50m);
-        var liam = Member("Liam", null, 20m, 50m);
-
-        var result = SplitCalculator.Calculate(new[] { kate, liam });
-
-        var kateBalance = result.MemberBalances.Single(b => b.MemberId == kate.MemberId);
-        var liamBalance = result.MemberBalances.Single(b => b.MemberId == liam.MemberId);
-
-        kateBalance.Balance.Should().Be(60m);
-        kateBalance.IsCreditor.Should().BeTrue();
-
-        liamBalance.Balance.Should().Be(-60m);
-        liamBalance.IsCreditor.Should().BeFalse();
-
-        result.Settlements.Should().HaveCount(1);
-        result.Settlements[0].FromMemberId.Should().Be(liam.MemberId);
-        result.Settlements[0].ToMemberId.Should().Be(kate.MemberId);
-        result.Settlements[0].Amount.Should().Be(60m);
     }
 
     // ─────────────────────────────────────────────────
@@ -369,7 +207,7 @@ public class SplitCalculatorTests
     [Fact]
     public void Calculate_OneMember_NoSettlementsNeeded()
     {
-        var solo = Member("Solo", null, 100m, 100m);
+        var solo = Member("Solo", 100m, 100m);
 
         var result = SplitCalculator.Calculate(new[] { solo });
 
@@ -380,8 +218,8 @@ public class SplitCalculatorTests
     [Fact]
     public void Calculate_ZeroTotalSpent_AllBalancesZero()
     {
-        var a = Member("A", null, 0m, 0m);
-        var b = Member("B", null, 0m, 0m);
+        var a = Member("A", 0m, 0m);
+        var b = Member("B", 0m, 0m);
 
         var result = SplitCalculator.Calculate(new[] { a, b });
 
@@ -393,9 +231,9 @@ public class SplitCalculatorTests
     public void EqualSplit_AllMembersPaidEqual_NoSettlements()
     {
         // Each paid exactly their share → no debts
-        var a = Member("A", null, 30m, 30m);
-        var b = Member("B", null, 30m, 30m);
-        var c = Member("C", null, 30m, 30m);
+        var a = Member("A", 30m, 30m);
+        var b = Member("B", 30m, 30m);
+        var c = Member("C", 30m, 30m);
 
         var result = SplitCalculator.Calculate(new[] { a, b, c });
 
@@ -408,10 +246,10 @@ public class SplitCalculatorTests
     {
         // Alice: +30, Bob: +10, Carol: -20, Dave: -20
         // Greedy: Carol pays Alice 20, Dave pays Alice 10, Dave pays Bob 10 → 3 transactions
-        var alice = new MemberInput(Guid.NewGuid(), "Alice", null, 60m, 30m); // paid 60, share=30 → +30
-        var bob   = new MemberInput(Guid.NewGuid(), "Bob",   null, 40m, 30m); // paid 40, share=30 → +10
-        var carol = new MemberInput(Guid.NewGuid(), "Carol", null, 10m, 30m); // paid 10, share=30 → -20
-        var dave  = new MemberInput(Guid.NewGuid(), "Dave",  null, 10m, 30m); // paid 10, share=30 → -20
+        var alice = new MemberInput(Guid.NewGuid(), "Alice", 60m, 30m); // paid 60, share=30 → +30
+        var bob   = new MemberInput(Guid.NewGuid(), "Bob", 40m, 30m); // paid 40, share=30 → +10
+        var carol = new MemberInput(Guid.NewGuid(), "Carol", 10m, 30m); // paid 10, share=30 → -20
+        var dave  = new MemberInput(Guid.NewGuid(), "Dave", 10m, 30m); // paid 10, share=30 → -20
 
         var result = SplitCalculator.Calculate(new[] { alice, bob, carol, dave });
 
