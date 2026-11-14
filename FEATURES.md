@@ -70,8 +70,8 @@ Every expense is split equally among its selected participants (`participantMemb
 Returns:
 - `totalSpent` — sum of all expense amounts
 - `memberBalances` — per-member balance: positive = creditor (is owed money), negative = debtor (owes money)
-- `settlements` — group-wide cash transfers to fully settle the group, netted across all expenses (greedy algorithm, at most n − 1 transfers)
-- `detailedSettlements` — the same greedy matching run per expense with no cross-expense netting, grouped as `{ expenseId, expenseTitle, settlements }`; expenses needing no transfers are omitted
+- `settlements` — group-wide cash transfers to fully settle the group, netted across all expenses, using the fewest possible transfers (see the Split Calculation Engine)
+- `detailedSettlements` — the same minimal matching run per expense with no cross-expense netting, grouped as `{ expenseId, expenseTitle, settlements }`; expenses needing no transfers are omitted
 
 ---
 
@@ -134,7 +134,7 @@ Each expense's shares are computed when the expense is saved (`SplitCalculator.S
 | 2 | **Paid** per member = sum of their `ExpensePayer.AmountPaid` rows |
 | 3 | **Fair share** per member = sum of their `ExpenseSplit.ShareAmount` rows (no row = excluded from that expense) |
 | 4 | `balance = amountPaid - fairShare` (positive = creditor, negative = debtor) |
-| 5 | **Greedy debt simplification** — repeatedly match the largest creditor with the largest debtor, record a transfer, reduce balances; at most n − 1 transfers |
+| 5 | **Minimal settlement** — split the non-zero balances into the largest number of groups that each net to zero, then settle each group by matching its largest creditor with its largest debtor. This gives the fewest possible transfers (n − number of groups); exact for up to 16 non-zero balances, plain greedy matching (at most n − 1) beyond that |
 | 6 | Return `MemberBalance[]` and `Settlement[]` |
 
 ### Edge cases handled
@@ -147,7 +147,8 @@ Each expense's shares are computed when the expense is saved (`SplitCalculator.S
 | All members paid equally | No settlements needed |
 | Member excluded from an expense | Owes nothing for it; can still be a payer (pure creditor) |
 | Decimal rounding | Shares are whole cents; leftover cents go one each to the earliest-joined participants, so shares sum exactly to the total |
-| Multiple creditors and debtors | Greedy algorithm minimises transaction count |
+| Multiple creditors and debtors | Fewest possible transfers: groups of people whose balances cancel out are settled among themselves (e.g. +6, +5, −5, −3, −3 → 3 transfers, where plain greedy matching makes 4) |
+| More than 16 non-zero balances | Exact search is skipped (it grows as 2^n); falls back to greedy matching, at most n − 1 transfers |
 
 ### Unit test coverage
 
@@ -167,7 +168,9 @@ Each expense's shares are computed when the expense is saved (`SplitCalculator.S
 | `Calculate_OneMember_NoSettlementsNeeded` | Solo group → no settlements |
 | `Calculate_ZeroTotalSpent_AllBalancesZero` | Nothing spent → all balances zero |
 | `EqualSplit_AllMembersPaidEqual_NoSettlements` | Perfect split → no settlements |
-| `SimplifyDebts_MultipleCreditors_TransactionsMinimized` | Greedy algorithm settles all debts exactly |
+| `SimplifyDebts_MultipleCreditors_TransactionsMinimized` | Settlements cover all debts exactly |
+
+`FairShare.Tests/Domain/MinimalSettlementTests.cs` covers the fewest-transfers guarantee: two independent groups settle in 3 transfers instead of greedy's 4, per-expense settlements use the same matching, randomly built zero-sum groups never need more than n − (number of groups) transfers, and groups above the exact-search limit still settle everyone.
 
 `FairShare.Tests/Application/ExpenseMemberIdValidationTests.cs` covers payer and participant ids: malformed and duplicate ids are rejected by the validators, and ids outside the group are rejected by the create/update use cases without saving (no more falling back to "everyone" for unknown participants).
 

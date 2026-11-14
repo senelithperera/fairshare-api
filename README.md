@@ -52,7 +52,7 @@ FairShare lets a group of people track shared expenses and instantly calculate w
 - Create expense groups with a single POST — no signup required
 - Add members to a group
 - Record expenses with multiple payers and automatic split calculation
-- Get a settlement summary: the minimum number of transfers to zero out all debts
+- Get a settlement summary: the fewest transfers needed to zero out all debts
 - Promote a guest group to an authenticated account at any time
 
 ---
@@ -334,7 +334,7 @@ Runs the split calculation engine and returns:
 ```
 
 - `settlements` — group-wide, netted across all expenses (fewest transfers).
-- `detailedSettlements` — the same greedy matching run per expense, with no cross-expense netting, so every pairing is between people who actually shared that expense. Expenses that need no transfers are omitted.
+- `detailedSettlements` — the same minimal matching run per expense, with no cross-expense netting, so every pairing is between people who actually shared that expense. Expenses that need no transfers are omitted.
 
 ---
 
@@ -437,7 +437,7 @@ Each expense is split equally among the members selected as its participants, an
 | 2 | **Paid** per member = sum of their `ExpensePayer.AmountPaid` rows |
 | 3 | **Fair share** per member = sum of their `ExpenseSplit.ShareAmount` rows (members excluded from an expense have no split row for it) |
 | 4 | `balance = paid − fairShare` — positive = creditor, negative = debtor |
-| 5 | **Greedy debt simplification** — repeatedly match largest creditor with largest debtor; produces at most n − 1 transfers |
+| 5 | **Minimal settlement** — split the non-zero balances into the largest number of groups that each net to zero, then settle each group by matching its largest creditor with its largest debtor. This gives the fewest possible transfers (n − number of groups); exact for up to 16 non-zero balances, plain greedy matching (at most n − 1) beyond that |
 | 6 | Return `MemberBalance[]` + `Settlement[]` |
 
 ### Example
