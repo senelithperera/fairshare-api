@@ -296,7 +296,7 @@ DELETE  /api/groups/{guestToken}/expenses/{expenseId}
 // Every payer and participant must be a member of the group (400 otherwise)
 ```
 
-**PUT** — Update an expense. Every field is optional; omitted fields are kept (omitting `participantMemberIds` keeps the current participants). Splits are always recalculated.
+**PUT** — Update an expense. Every field is optional; omitted fields are kept (omitting `participantMemberIds` keeps the current participants). Splits are always recalculated. The payers must still sum to the total after the update: sending only `totalAmount` or only `payers` returns `400` (`errors.Payers`) if the result no longer balances.
 
 **DELETE** — Permanently deletes the expense; its payer and split rows are removed by cascade.
 

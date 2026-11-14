@@ -185,9 +185,9 @@ All request bodies are validated before reaching use cases. Validation errors re
 |---|---|
 | `CreateGroupValidator` | Name: required, max 100; Currency: required, max 10 |
 | `AddMemberValidator` | GuestName: required, max 80 |
-| `UpdateMemberValidator` | GuestName: max 80 if provided |
+| `UpdateMemberValidator` | GuestName: not empty or whitespace, max 80 — if provided |
 | `CreateExpenseValidator` | Title: required, max 150; Amount: > 0, max 2 decimals; at least one payer; payer amounts must sum to total; payer and participant ids must be valid GUIDs with no duplicates |
-| `UpdateExpenseValidator` | Title: max 150 if provided; Amount: > 0, max 2 decimals if provided; payer amounts must sum to total if both provided; payer and participant ids must be valid GUIDs with no duplicates. When only one of total/payers is sent, `UpdateExpenseUseCase` checks the merged result against the stored value (`PayerSumMismatch` → 400 `errors.Payers`) |
+| `UpdateExpenseValidator` | Title: not empty or whitespace, max 150 if provided; Amount: > 0, max 2 decimals if provided; payer amounts must sum to total if both provided; payer and participant ids must be valid GUIDs with no duplicates. When only one of total/payers is sent, `UpdateExpenseUseCase` checks the merged result against the stored value (`PayerSumMismatch` → 400 `errors.Payers`) |
 | `RegisterValidator` | Name: required, max 100; Email: valid format, max 255; Password: min 8, 1 uppercase, 1 digit |
 | `LoginValidator` | Email: required, valid format; Password: required |
 
