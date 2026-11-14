@@ -177,9 +177,12 @@ All settings live in `src/FairShare.API/appsettings.Development.json` for local 
     "Key":      "dev-secret-key-replace-in-production-must-be-32chars",
     "Issuer":   "FairShare",
     "Audience": "FairShareClients"
-  }
+  },
+  "AllowedOrigins": "http://localhost:5173"   // comma-separated CORS origins (the Vite dev server)
 }
 ```
+
+> **CORS:** only the origins listed in `AllowedOrigins` may call the API from a browser. The base `appsettings.json` does not set it, so outside Development no cross-origin requests are allowed until you configure it.
 
 > **Production:** replace `Jwt:Key` with a cryptographically random string of at least 32 characters. Never commit production secrets — use environment variables or a secrets manager.
 
@@ -286,10 +289,14 @@ DELETE  /api/groups/{guestToken}/expenses/{expenseId}
   "totalAmount": 30000.00,
   "payers": [
     { "memberId": "uuid-alice", "amountPaid": 30000.00 }
-  ]
+  ],
+  "participantMemberIds": ["uuid-alice", "uuid-bob", "uuid-carol"]   // optional — omit to split among everyone
 }
 // Sum of payers[].amountPaid must equal totalAmount
+// Every payer and participant must be a member of the group (400 otherwise)
 ```
+
+**PUT** — Update an expense. Every field is optional; omitted fields are kept (omitting `participantMemberIds` keeps the current participants). Splits are always recalculated.
 
 **DELETE** — Permanently deletes the expense; its payer and split rows are removed by cascade.
 
@@ -314,9 +321,20 @@ Runs the split calculation engine and returns:
   "settlements": [
     { "fromMemberId": "...", "from": "Bob",   "toMemberId": "...", "to": "Alice", "amount": 30000.00 },
     { "fromMemberId": "...", "from": "Carol", "toMemberId": "...", "to": "Alice", "amount": 30000.00 }
+  ],
+  "detailedSettlements": [
+    {
+      "expenseId": "...", "expenseTitle": "Hotel",
+      "settlements": [
+        { "fromMemberId": "...", "from": "Bob", "toMemberId": "...", "to": "Alice", "amount": 30000.00 }
+      ]
+    }
   ]
 }
 ```
+
+- `settlements` — group-wide, netted across all expenses (fewest transfers).
+- `detailedSettlements` — the same greedy matching run per expense, with no cross-expense netting, so every pairing is between people who actually shared that expense. Expenses that need no transfers are omitted.
 
 ---
 
@@ -469,14 +487,16 @@ All errors follow [RFC 7807 Problem Details](https://www.rfc-editor.org/rfc/rfc7
   "type":    "https://tools.ietf.org/html/rfc7807",
   "title":   "One or more validation errors occurred.",
   "status":  400,
-  "detail":  "See 'errors' for field-level details.",
   "traceId": "00-abc123...",
   "errors": {
-    "title":       ["Title is required."],
-    "totalAmount": ["Total amount must be greater than 0."]
+    "Title":                ["Title is required."],
+    "TotalAmount":          ["Total amount must be greater than 0."],
+    "Payers[0].AmountPaid": ["Amount paid can have at most 2 decimal places."]
   }
 }
 ```
+
+> **Note:** `errors` keys are the C# property paths in **PascalCase** (`Title`, `TotalAmount`, `Payers[0].AmountPaid`, `ParticipantMemberIds`, `GuestName`) — the camelCase naming policy does not apply to dictionary keys. Match them case-insensitively on the client.
 
 | Status | When |
 |---|---|
@@ -496,8 +516,8 @@ All errors follow [RFC 7807 Problem Details](https://www.rfc-editor.org/rfc/rfc7
 | IDs | GUID strings |
 | Dates | ISO 8601 UTC — e.g. `"2026-02-26T10:00:00.0000000Z"` |
 | Amounts | `decimal`, 2 decimal places |
-| Enums | String values — e.g. `"Equal"`, not `0` |
-| List responses | `{ "data": [...], "count": N }` |
+| Enums | Serialised as strings (`JsonStringEnumConverter`); no current response contains an enum |
+| Top-level list responses | `{ "data": [...], "count": N }` (e.g. `GET /api/users/me/groups`); lists nested inside an object are plain arrays |
 
 ---
 

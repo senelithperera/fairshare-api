@@ -54,7 +54,7 @@ All Phase 1 routes are accessed via a `guestToken` (UUID) in the URL path instea
 | Delete an expense | `DELETE` | `/api/groups/{guestToken}/expenses/{expenseId}` |
 
 - **Add expense** — records `title`, `totalAmount`, and one or more `payers` (member + amount paid). Validates that payer amounts sum to `totalAmount`. Calculates and persists `ExpenseSplit` records (equal division per expense) immediately.
-- **Update expense** — partial update for title and/or total amount; replaces payers if provided and recalculates splits.
+- **Update expense** — partial update: title, total amount, payers and `participantMemberIds` are all optional. Payers are replaced if provided; omitted participants keep the current ones. Splits are always recalculated.
 - **Delete expense** — hard delete. The expense row is removed and its payer and split rows go with it (ON DELETE CASCADE).
 
 Every expense is split equally among its selected participants (`participantMemberIds`, default everyone). Expenses record who paid what and who shares the cost; the `SplitCalculator` nets this across all expenses at summary time.
@@ -68,9 +68,10 @@ Every expense is split equally among its selected participants (`participantMemb
 | Get financial summary | `GET` | `/api/groups/{guestToken}/summary` |
 
 Returns:
-- `totalSpent` — sum of all active expense amounts
+- `totalSpent` — sum of all expense amounts
 - `memberBalances` — per-member balance: positive = creditor (is owed money), negative = debtor (owes money)
-- `settlements` — the minimum set of cash transfers to fully settle the group (greedy algorithm)
+- `settlements` — group-wide cash transfers to fully settle the group, netted across all expenses (greedy algorithm, at most n − 1 transfers)
+- `detailedSettlements` — the same greedy matching run per expense with no cross-expense netting, grouped as `{ expenseId, expenseTitle, settlements }`; expenses needing no transfers are omitted
 
 ---
 
@@ -176,7 +177,7 @@ Each expense's shares are computed when the expense is saved (`SplitCalculator.S
 
 ### Validation (FluentValidation)
 
-All request bodies are validated before reaching use cases. Validation errors return HTTP 400 with RFC 7807 `ProblemDetails` including field-level error messages.
+All request bodies are validated before reaching use cases. Validation errors return HTTP 400 with RFC 7807 `ValidationProblemDetails` including field-level error messages. The `errors` keys are PascalCase property paths (`TotalAmount`, `Payers[0].AmountPaid`, `ParticipantMemberIds`) — the camelCase policy does not apply to dictionary keys.
 
 | Validator | Rules |
 |---|---|
@@ -231,7 +232,7 @@ All request bodies are validated before reaching use cases. Validation errors re
 | Token rotation | Refresh token is invalidated and replaced on every use |
 | Access token lifetime | 15 minutes (`ClockSkew = Zero`) |
 | JWT validation | Issuer, audience, lifetime, and signature all validated |
-| CORS | Configurable via default policy; open in dev, should be locked down in production |
+| CORS | Default policy allows only the comma-separated `AllowedOrigins` setting (`http://localhost:5173` in Development). Not set in the base `appsettings.json`, so other environments allow no browser origins until configured |
 
 ---
 
@@ -243,8 +244,8 @@ All request bodies are validated before reaching use cases. Validation errors re
 | IDs | All GUIDs returned as strings |
 | Dates | ISO 8601 UTC strings (`"o"` format) |
 | Amounts | `decimal` with 2 decimal places |
-| List responses | Wrapped as `{ "data": [...], "count": N }` |
-| Enum values | Serialised as strings (e.g. `"Equal"`, not `0`) |
+| Top-level list responses | Wrapped as `{ "data": [...], "count": N }` (e.g. `/api/users/me/groups`); nested lists are plain arrays |
+| Enum values | Serialised as strings (`JsonStringEnumConverter`); no current response contains an enum |
 
 ---
 
@@ -303,4 +304,4 @@ User ─────────────────────────
 |---|---|
 | "Settle Group Now" button | Frontend UI stub only. No API endpoint exists. Deferred — a future `POST /api/groups/{guestToken}/archive` could close the group once the group decides debts are settled. |
 
-*Last updated: 2026-06-24*
+*Last updated: 2026-11-14*
