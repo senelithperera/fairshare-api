@@ -1,6 +1,11 @@
-bin/
-obj/
-logs/
+# Patterns need **/ to match in every project folder, not just the repo root. Copying local
+# bin/obj into the image breaks `dotnet publish` (Windows NuGet paths in project.assets.json).
+**/bin/
+**/obj/
+**/logs/
+**/.vs/
+.git/
+.github/
+.claude/
 .env
 .env.*
-**/.vs/

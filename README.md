@@ -40,6 +40,7 @@ A group expense-splitting backend built with **ASP.NET Core 8** and **Clean Arch
   - [Response Conventions](#response-conventions)
   - [Running Tests](#running-tests)
   - [Data Model](#data-model)
+  - [Deployment](DEPLOYMENT.md)
 
 ---
 
@@ -184,7 +185,9 @@ All settings live in `src/FairShare.API/appsettings.Development.json` for local 
 
 > **CORS:** only the origins listed in `AllowedOrigins` may call the API from a browser. The base `appsettings.json` does not set it, so outside Development no cross-origin requests are allowed until you configure it.
 
-> **Production:** replace `Jwt:Key` with a cryptographically random string of at least 32 characters. Never commit production secrets — use environment variables or a secrets manager.
+> **Production:** set `Jwt__Key` to a random string of at least 32 characters. The API refuses to start with a missing, short or placeholder key. Never commit production secrets — use environment variables or a secrets manager.
+
+> **Deploying:** see [DEPLOYMENT.md](DEPLOYMENT.md) for the free demo setup (Cloudflare Pages + Render + Neon), every environment variable, rate limits and the `/health` endpoint.
 
 ### Docker environment variables (`.env`)
 

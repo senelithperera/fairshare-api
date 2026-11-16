@@ -19,11 +19,14 @@ public static class InfrastructureServiceExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // EF Core — PostgreSQL
+        // EF Core — PostgreSQL. Accepts a postgres:// URL too (what Neon/Render hand out).
+        // Retries transient failures, e.g. while a serverless database wakes from sleep.
         services.AddDbContext<FairShareDbContext>(options =>
             options.UseNpgsql(
-                configuration.GetConnectionString("DefaultConnection"),
-                npgsql => npgsql.MigrationsAssembly(typeof(FairShareDbContext).Assembly.FullName)));
+                PostgresConnectionString.Normalize(configuration.GetConnectionString("DefaultConnection")),
+                npgsql => npgsql
+                    .MigrationsAssembly(typeof(FairShareDbContext).Assembly.FullName)
+                    .EnableRetryOnFailure(maxRetryCount: 5)));
 
         // Repositories
         services.AddScoped<IGroupRepository, GroupRepository>();
@@ -36,8 +39,7 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IPasswordHasher, BcryptPasswordHasher>();
 
         // JWT Bearer authentication
-        var jwtKey = configuration["Jwt:Key"]
-            ?? throw new InvalidOperationException("Jwt:Key is not configured.");
+        var jwtKey = JwtSigningKey.Require(configuration["Jwt:Key"]);
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>

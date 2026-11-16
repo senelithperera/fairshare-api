@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore FairShare.sln
+
+      - name: Build
+        run: dotnet build FairShare.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test FairShare.sln -c Release --no-build --verbosity normal
+
+      # Catches Dockerfile breakage before Render tries to deploy it.
+      - name: Docker build
+        run: docker build -t fairshare-api:ci .
