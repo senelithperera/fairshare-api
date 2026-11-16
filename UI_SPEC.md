@@ -35,15 +35,20 @@ and can be shared with others as a link. Any other path shows a "Page not found"
 
 ```
 ┌──────────────────────────────────────────┐
+│                 [▣]                      │
 │              FairShare                   │
-│   Organize shared expenses with precision│
+│  Split shared costs with your group and  │
+│  see exactly who pays whom. No sign-up.  │
 │                                          │
 │  ┌ Create New Group ───────────────────┐ │
 │  │ Group Name  [______________________]│ │
 │  │ Currency    [ LKR ▾ ]               │ │
 │  │          [ ⊕ Create Group ]         │ │
-│  │ ⓘ Share the group link with anyone… │ │
+│  │ ⓘ You'll get a link to share…       │ │
 │  └─────────────────────────────────────┘ │
+│              HOW IT WORKS                │
+│  (1) Add people  (2) Add expenses        │
+│  (3) See who pays whom                   │
 └──────────────────────────────────────────┘
 ```
 
@@ -58,6 +63,11 @@ and can be shared with others as a link. Any other path shows a "Page not found"
 
 - Local validation: empty name → "Group name is required".
 - On success (`201`): navigate to `/group/{guestToken}`.
+- Below the form, "How it works" lists the three steps (an `<ol>`; one column on phones, three
+  from `sm`): Add people · Add expenses · See who pays whom, each with one line of detail. The
+  copy lives in `src/lib/steps.js` and is reused by the group page's empty states, so a new
+  group follows the same steps the home page described.
+- The card footer explains that anyone with the group's link can view and edit it.
 - On `400`: field errors shown inline; errors with no matching field are shown as a toast.
 - Other failures: error toast.
 
@@ -77,17 +87,18 @@ Both are re-fetched after every successful add / edit / delete.
 │ [LKR] Bali Trip                                        [⧉ Copy Link] │
 │ 3 members · 3 expenses                                               │
 ├───────────────────────────────────────────┬──────────────────────────┤
-│ Members                         3 Total   │ ┌ Group Total Spent ───┐ │
-│ [+ Add Member]                            │ │ LKR 90,000.00        │ │
-│ ┌────────┐ ┌────────┐ ┌────────┐          │ └──────────────────────┘ │
-│ │(A)Alice│ │(B) Bob │ │(C)Carol│  ✎ 🗑    │ ┌ Balances ────────────┐ │
-│ └────────┘ └────────┘ └────────┘          │ │ Alice  + LKR 60,000  │ │
+│ Members                  [+ Add Member]   │ ┌ Group Total Spent ───┐ │
+│                                           │ │ LKR 90,000.00        │ │
+│ ┌───────────────────┐ ┌───────────────────┐│ └──────────────────────┘ │
+│ │(A) Alice    ✎ 🗑  │ │(B) Bob      ✎ 🗑  ││ ┌ Balances ────────────┐ │
+│ │Paid 30,000 · 2 exp│ │Paid 0.00 · 1 exp  ││ │ Alice  + LKR 60,000  │ │
 │                                           │ │ Bob    - LKR 30,000  │ │
 │ Expenses                   [+ Add Expense]│ │ Carol  - LKR 30,000  │ │
 │ ┌───────────────────────────────────────┐ │ └──────────────────────┘ │
-│ │ 🏨 Hotel            LKR 30,000.00 ✎ 🗑 │ │ ┌ Recommended Settle…─┐ │
+│ │ 🏨 Hotel            LKR 30,000.00 ✎ 🗑 │ │ ┌ Who pays whom ──────┐ │
 │ │    Paid by Alice                      │ │ │ (Simplified|Detailed)│ │
-│ │    Split between Alice, Bob           │ │ │ Bob → Alice  30,000  │ │
+│ │    👥 Split between Alice and Bob ·    │ │
+│ │       LKR 15,000.00 each              │ │ │ Bob → Alice  30,000  │ │
 │ └───────────────────────────────────────┘ │ │ Carol → Alice 30,000 │ │
 │                                           │ │ [✓ Settle Group Now] │ │
 │                                           │ └──────────────────────┘ │
@@ -107,32 +118,48 @@ sidebar stacks below.
 
 ### Members section
 
-- "Add Member" button opens the member modal (Screen 3).
-- One `MemberCard` per member: avatar (initials) + `displayName`, with ✎ (edit) and 🗑 (delete).
-  `totalAmountPaid` is not displayed.
-- 🗑 → confirm dialog "Delete {name}?" → `DELETE …/members/{memberId}`.
+- "Add Member" sits in the section header and opens the member modal (Screen 3).
+- One `MemberCard` per member (two per row from `sm` up): avatar (initials) + `displayName`,
+  a second line "Paid {totalAmountPaid} · N expenses" (or "Not in any expenses yet"), and
+  always-visible 44px ✎ (edit) and 🗑 (delete) buttons.
+- 🗑 when the member is a payer or participant in any expense (worked out from the loaded
+  group) → info dialog "{name} can't be removed yet" naming those expenses and how to free the
+  member. No API call.
+- 🗑 otherwise → confirm dialog "Delete {name}?" → `DELETE …/members/{memberId}`.
   - `204` → toast "Member removed".
-  - `409` → error toast "This member has expenses and cannot be deleted."
-- Empty state: "No members yet".
+  - `409` (someone added them to an expense meanwhile) → error toast.
+- Empty (step 1 of 3): dashed "Step 1 of 3 · Add the people in this group" slot with a filled
+  "Add first member" button. The header button is hidden until there is a member.
 
 ### Expenses section
 
-- "Add Expense" is disabled until at least one member exists.
+- "Add Expense" (filled) sits in the section header once there is at least one expense.
+- Button styles (`src/components/button.js`): only the next step is filled (**primary**) — "Add
+  first member", then "Add first expense", then the header "Add Expense". "Add Member" is
+  outlined (**secondary**) once members exist; Copy Link is **tonal**; "Settle Group Now" is
+  outlined. No button is ever disabled with a hover-only explanation.
+- On phones (below `lg`), once there are expenses, a "Who pays whom · N payments" bar under the
+  header scrolls to the settlements card and moves focus to its heading.
 - One `ExpenseCard` per expense: icon (guessed from keywords in the title), `title`,
-  "Paid by {payer names}", `totalAmount`, and — only when fewer than all members take part —
-  "Split between {participant names}" (from `splits`).
+  "Paid by {payer names}", `totalAmount`, and always a sharing line built from `splits`:
+  "Split equally between all 3 · LKR 10,000.00 each", "Split between Alice and Bob · LKR
+  15,000.00 each" (names after two summarised as "and N others"), or "For Alice only". When
+  shares differ by a cent it reads "about LKR 33.33 each".
 - ✎ opens the expense modal pre-filled (Screen 4).
 - 🗑 → confirm dialog `Delete "{title}"?` → `DELETE …/expenses/{expenseId}` (hard delete, no undo)
   → toast "Expense removed".
-- Empty state: "No expenses yet" (with a hint to add a member first if there are none).
+- Empty, no members yet (step 2 of 3, greyed): "Then add what was paid — Once someone is in the
+  group, you can add expenses here." No button.
+- Empty with members (step 2 of 3): "Add the first expense" with a filled "Add first expense"
+  button.
 
 ### Summary sidebar — `src/components/summary-sidebar.jsx`
 
 | Card | Source | Display |
 |---|---|---|
 | Group Total Spent | `totalSpent` | Formatted with currency |
-| Balances | `memberBalances[]` | Avatar, name, amount. `isCreditor` → green "+"; otherwise red "-" (a zero balance currently renders as "- 0.00") |
-| Recommended Settlements | `settlements[]` / `detailedSettlements[]` | Toggle: **Simplified** = group-wide netted transfers; **Detailed** = transfers grouped under each expense title. "From → To  amount" per row. Empty → "🎉 All settled up!" |
+| Balances | `memberBalances[]` | Avatar, name and a plain-language status, compared in whole cents: green "gets back {amount}", red "owes {amount}", or grey "all square" for zero |
+| Who pays whom | `settlements[]` / `detailedSettlements[]` | Toggle: **Simplified** = group-wide netted transfers; **Detailed** = transfers grouped under each expense title. "From → To  amount" per row. Empty → "🎉 All settled up!". With no expenses at all the card instead shows a dashed "Step 3 of 3" slot ("Once expenses are added, this shows the fewest payments that make everyone even.") and hides the toggle and the Settle button. Each view shows a one-line hint above the list: Simplified explains that debts are combined across expenses (so you may pay someone you didn't share an expense with, for the same total) with a "See it per expense" link to Detailed; Detailed explains that you only pay people you shared each expense with, which can mean more payments |
 | Settle Group Now | — | **UI stub:** spins 600 ms and toasts "All debts marked as settled!". No API call |
 
 Skeleton cards are shown while the summary is loading.
@@ -210,6 +237,12 @@ Skeleton cards are shown while the summary is loading.
 - **Add mode:** empty, no payer selected, all members in the split.
 - **Edit mode:** pre-filled from the expense; multi-payer mode if it has more than one payer;
   participants from `splits`. The full body is always sent on `PUT`.
+- "Who Paid?" and "Split Between" each have a one-line helper ("The person who paid the bill." /
+  "Everyone who shares the cost. Each person pays an equal part."). The multi-payer switch reads
+  "More than one person paid?" (and "Only one person paid" to switch back).
+- Under the participant chips a live preview shows each share, using the API's whole-cent rule:
+  "LKR 10,000.00 each · 3 people", or "LKR 33.33 to LKR 33.34 each · 3 people" when cents don't
+  divide evenly; prompts instead when the total or participants are missing.
 - Multi-payer mode shows a live "Total allocated: X / Y" line — green ✓ when the payer amounts
   equal the total to the cent, red ⚠ otherwise.
 - Switching back to single-payer keeps only the first selected payer.
