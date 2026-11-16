@@ -100,7 +100,8 @@ Both are re-fetched after every successful add / edit / delete.
 │ │    👥 Split between Alice and Bob ·    │ │
 │ │       LKR 15,000.00 each              │ │ │ Bob → Alice  30,000  │ │
 │ └───────────────────────────────────────┘ │ │ Carol → Alice 30,000 │ │
-│                                           │ │ [✓ Settle Group Now] │ │
+│                                           │ │ 2 payments make      │ │
+│                                           │ │ everyone even        │ │
 │                                           │ └──────────────────────┘ │
 └───────────────────────────────────────────┴──────────────────────────┘
 ```
@@ -136,8 +137,7 @@ sidebar stacks below.
 - "Add Expense" (filled) sits in the section header once there is at least one expense.
 - Button styles (`src/components/button.js`): only the next step is filled (**primary**) — "Add
   first member", then "Add first expense", then the header "Add Expense". "Add Member" is
-  outlined (**secondary**) once members exist; Copy Link is **tonal**; "Settle Group Now" is
-  outlined. No button is ever disabled with a hover-only explanation.
+  outlined (**secondary**) once members exist; Copy Link is **tonal**. No button is ever disabled with a hover-only explanation.
 - On phones (below `lg`), once there are expenses, a "Who pays whom · N payments" bar under the
   header scrolls to the settlements card and moves focus to its heading.
 - One `ExpenseCard` per expense: icon (guessed from keywords in the title), `title`,
@@ -159,8 +159,7 @@ sidebar stacks below.
 |---|---|---|
 | Group Total Spent | `totalSpent` | Formatted with currency |
 | Balances | `memberBalances[]` | Avatar, name and a plain-language status, compared in whole cents: green "gets back {amount}", red "owes {amount}", or grey "all square" for zero |
-| Who pays whom | `settlements[]` / `detailedSettlements[]` | Toggle: **Simplified** = group-wide netted transfers; **Detailed** = transfers grouped under each expense title. "From → To  amount" per row. Empty → "🎉 All settled up!". With no expenses at all the card instead shows a dashed "Step 3 of 3" slot ("Once expenses are added, this shows the fewest payments that make everyone even.") and hides the toggle and the Settle button. Each view shows a one-line hint above the list: Simplified explains that debts are combined across expenses (so you may pay someone you didn't share an expense with, for the same total) with a "See it per expense" link to Detailed; Detailed explains that you only pay people you shared each expense with, which can mean more payments |
-| Settle Group Now | — | **UI stub:** spins 600 ms and toasts "All debts marked as settled!". No API call |
+| Who pays whom | `settlements[]` / `detailedSettlements[]` | Toggle: **Simplified** = group-wide netted transfers; **Detailed** = transfers grouped under each expense title. "From → To  amount" per row. Under the heading: "The fewest payments that make everyone even. Pay each other directly; FairShare works out the payments but doesn't send or track money." Above each list a count line: Simplified "N payments make everyone even"; Detailed "N payments, expense by expense · M more than Simplified". No payments → "Everyone is even · No payments needed" (check icon). There is no settle or "mark as paid" action in version 1. With no expenses at all the card instead shows a dashed "Step 3 of 3" slot ("Once expenses are added, this shows the fewest payments that make everyone even.") and hides the toggle. Each view shows a one-line hint above the list: Simplified explains that debts are combined across expenses (so you may pay someone you didn't share an expense with, for the same total) with a "See it per expense" link to Detailed; Detailed explains that you only pay people you shared each expense with, which can mean more payments |
 
 Skeleton cards are shown while the summary is loading.
 
@@ -285,7 +284,7 @@ Required before destructive actions:
 
 | Item | Status |
 |---|---|
-| "Settle Group Now" / archive group | UI stub only — no API endpoint |
+| Settling, "mark as paid", archive group | Out of scope for version 1 — payments happen outside the app. The "Settle Group Now" stub was removed |
 | Phase 2 UI (register, login, profile, my groups) | API exists; no frontend |
 | "Added by" (`createdByMemberId`) | Deferred to Phase 2 |
 | Uneven splits (shares, exact amounts, percentages) | Not supported — every expense is split equally among its participants |
