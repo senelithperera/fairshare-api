@@ -14,4 +14,7 @@ WORKDIR /app
 COPY --from=build /app/publish .
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
+# Run as the image's built-in non-root user. A hosting platform's PORT variable, if set,
+# overrides the port above (see Program.cs).
+USER $APP_UID
 ENTRYPOINT ["dotnet", "FairShare.API.dll"]
