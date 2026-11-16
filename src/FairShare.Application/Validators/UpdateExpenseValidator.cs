@@ -8,7 +8,9 @@ public class UpdateExpenseValidator : AbstractValidator<UpdateExpenseRequest>
 {
     public UpdateExpenseValidator()
     {
+        // Omitting the title keeps it; sending one must not blank it out.
         RuleFor(x => x.Title)
+            .NotEmpty().WithMessage("Title is required.")
             .MaximumLength(150).WithMessage("Title must not exceed 150 characters.")
             .When(x => x.Title is not null);
 

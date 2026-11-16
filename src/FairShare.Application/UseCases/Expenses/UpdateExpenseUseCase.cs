@@ -50,6 +50,14 @@ public class UpdateExpenseUseCase
         var participants = ResolveParticipants(participantIds, allMembers);
         if (participants is null) return ExpenseResult.ParticipantNotInGroup;
 
+        // The validator can only compare payers with the total when both are sent, so check the
+        // merged result: sending just one of them must not leave the payers out of sync with the
+        // total (balances would stop netting to zero).
+        var effectiveTotal = request.TotalAmount ?? expense.TotalAmount;
+        var effectivePaid  = request.Payers?.Sum(p => p.AmountPaid) ?? expense.Payers.Sum(p => p.AmountPaid);
+        if (Math.Abs(effectivePaid - effectiveTotal) >= 0.01m)
+            return ExpenseResult.PayerSumMismatch;
+
         // Apply patches
         if (request.Title is not null)
             expense.Title = request.Title.Trim();

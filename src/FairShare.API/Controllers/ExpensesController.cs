@@ -89,6 +89,7 @@ public class ExpensesController : ControllerBase
             ExpenseResultStatus.NotFound              => NotFound(NotFoundProblem("Group or expense not found.")),
             ExpenseResultStatus.PayerNotInGroup       => PayerNotInGroupProblem(),
             ExpenseResultStatus.ParticipantNotInGroup => ParticipantNotInGroupProblem(),
+            ExpenseResultStatus.PayerSumMismatch      => PayerSumMismatchProblem(),
             _ => StatusCode(500)
         };
     }
@@ -119,6 +120,12 @@ public class ExpensesController : ControllerBase
         ValidationProblem(new ValidationProblemDetails(new Dictionary<string, string[]>
         {
             ["Payers"] = ["Every payer must be a member of this group."]
+        }));
+
+    private IActionResult PayerSumMismatchProblem() =>
+        ValidationProblem(new ValidationProblemDetails(new Dictionary<string, string[]>
+        {
+            ["Payers"] = ["Sum of payer amounts must equal the total amount."]
         }));
 
     private IActionResult ParticipantNotInGroupProblem() =>
