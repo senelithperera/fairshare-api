@@ -590,7 +590,7 @@ User ─────────────────────────
 
 | Item | Status |
 |---|---|
-| "Settle Group Now" button (frontend) | UI stub only — shows a toast but makes no API call and writes nothing to the database. Settlement in the real world means group members pay each other directly; the app tracks the recommended transfers but does not record the act of payment. A future `POST /api/groups/{guestToken}/archive` endpoint could close the group once debts are settled. |
+| Settling / archiving groups | Out of scope for version 1: FairShare works out the fewest payments that make everyone even, and people pay each other outside the app. Nothing is recorded as paid, and the former "Settle Group Now" UI stub was removed. A future `POST /api/groups/{guestToken}/archive` endpoint could close a group in a later version. |
 
 ---
 

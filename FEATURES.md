@@ -307,6 +307,6 @@ User ─────────────────────────
 
 | Item | Status |
 |---|---|
-| "Settle Group Now" button | Frontend UI stub only. No API endpoint exists. Deferred — a future `POST /api/groups/{guestToken}/archive` could close the group once the group decides debts are settled. |
+| Settling / archiving groups | Out of scope for version 1: the app only works out who pays whom, and people pay each other outside the app. The "Settle Group Now" UI stub was removed. A future `POST /api/groups/{guestToken}/archive` could close a group in a later version. |
 
 *Last updated: 2026-11-14*
