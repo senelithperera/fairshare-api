@@ -28,6 +28,10 @@ public class ExpenseRepository : IExpenseRepository
             .ToListAsync(ct);
 
     /// <inheritdoc/>
+    public async Task<int> CountByGroupIdAsync(Guid groupId, CancellationToken ct = default)
+        => await _db.Expenses.CountAsync(e => e.GroupId == groupId, ct);
+
+    /// <inheritdoc/>
     public async Task AddAsync(Expense expense, CancellationToken ct = default)
         => await _db.Expenses.AddAsync(expense, ct);
 

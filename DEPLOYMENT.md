@@ -78,8 +78,15 @@ path `/health`, and set the variables above plus `ASPNETCORE_ENVIRONMENT=Product
 | `AllowedOrigins` | Yes | Comma-separated browser origins allowed by CORS. A warning is logged at startup if empty. |
 | `ASPNETCORE_ENVIRONMENT` | Yes | `Production` (Development enables the Scalar docs and log files). |
 | `PORT` | No | Set by most platforms; the API listens on it (default 8080). |
-| `RateLimit__WritesPerMinute` | No | Per client IP; default 30. Over the limit → `429`. |
-| `RateLimit__ReadsPerMinute` | No | Per client IP; default 120. `/health` is never limited. |
+| `RateLimit__ReadsPerMinute` | No | Per client IP; default 300. `/health` is never limited. |
+| `RateLimit__WritesPerMinute` | No | Per client IP; default 60. Over any limit → `429` with `Retry-After`. |
+| `RateLimit__WritesPerDay` | No | Per client IP; default 1,000. The guard on database growth. |
+| `RateLimit__GroupsPerHour` | No | New groups per client IP; default 10. |
+| `Limits__MembersPerGroup` | No | Default 30 (1 to 100). Over the limit → `409`. |
+| `Limits__ExpensesPerGroup` | No | Default 1,000. Over the limit → `409`. |
+
+The defaults are sized for about a dozen friends who may all share one IP address (one Wi-Fi
+network or hotspot). The README's Security section explains each one.
 
 ## Operating notes
 

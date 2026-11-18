@@ -44,6 +44,10 @@ public class GroupMemberRepository : IGroupMemberRepository
         || await _db.ExpenseSplits.AnyAsync(s => s.MemberId == memberId, ct);
 
     /// <inheritdoc/>
+    public async Task<int> CountByGroupIdAsync(Guid groupId, CancellationToken ct = default)
+        => await _db.GroupMembers.CountAsync(m => m.GroupId == groupId, ct);
+
+    /// <inheritdoc/>
     public async Task SaveChangesAsync(CancellationToken ct = default)
         => await _db.SaveChangesAsync(ct);
 }

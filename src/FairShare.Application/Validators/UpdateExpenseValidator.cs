@@ -19,6 +19,19 @@ public class UpdateExpenseValidator : AbstractValidator<UpdateExpenseRequest>
             .PrecisionScale(18, 2, true).WithMessage("Total amount can have at most 2 decimal places.")
             .When(x => x.TotalAmount.HasValue);
 
+        // No group has more than GroupLimits.PeopleCeiling people, so longer lists are rejected
+        // before any work is done on them.
+        RuleFor(x => x.Payers!.Count)
+            .LessThanOrEqualTo(GroupLimits.PeopleCeiling)
+            .OverridePropertyName("Payers")
+            .WithMessage($"An expense can have at most {GroupLimits.PeopleCeiling} payers.")
+            .When(x => x.Payers is not null);
+        RuleFor(x => x.ParticipantMemberIds!.Count)
+            .LessThanOrEqualTo(GroupLimits.PeopleCeiling)
+            .OverridePropertyName("ParticipantMemberIds")
+            .WithMessage($"An expense can be split between at most {GroupLimits.PeopleCeiling} people.")
+            .When(x => x.ParticipantMemberIds is not null);
+
         RuleFor(x => x.Payers)
             .NotEmpty().WithMessage("At least one payer is required.")
             .When(x => x.Payers is not null);

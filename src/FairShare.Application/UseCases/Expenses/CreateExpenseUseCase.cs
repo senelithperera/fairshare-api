@@ -13,24 +13,30 @@ public class CreateExpenseUseCase
     private readonly IGroupMemberRepository _members;
     private readonly IExpenseRepository _expenses;
     private readonly ILogger<CreateExpenseUseCase> _logger;
+    private readonly GroupLimits _limits;
 
     public CreateExpenseUseCase(
         IGroupRepository groups,
         IGroupMemberRepository members,
         IExpenseRepository expenses,
-        ILogger<CreateExpenseUseCase> logger)
+        ILogger<CreateExpenseUseCase> logger,
+        GroupLimits? limits = null)
     {
         _groups   = groups;
         _members  = members;
         _expenses = expenses;
         _logger   = logger;
+        _limits   = limits ?? GroupLimits.Default;
     }
+
+    /// <summary>The limits in force (the API shows the expense limit in its error message).</summary>
+    public GroupLimits Limits => _limits;
 
     /// <summary>Executes the use case.</summary>
     /// <param name="guestToken">Group guest token.</param>
     /// <param name="request">Expense details.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>The created expense, or NotFound / PayerNotInGroup.</returns>
+    /// <returns>The created expense, or NotFound / GroupFull / PayerNotInGroup / ParticipantNotInGroup.</returns>
     public async Task<ExpenseResult> ExecuteAsync(
         Guid guestToken,
         CreateExpenseRequest request,
@@ -38,6 +44,9 @@ public class CreateExpenseUseCase
     {
         var group = await _groups.GetByGuestTokenAsync(guestToken, ct);
         if (group is null) return ExpenseResult.NotFound;
+
+        if (await _expenses.CountByGroupIdAsync(group.Id, ct) >= _limits.MaxExpensesPerGroup)
+            return ExpenseResult.GroupFull;
 
         var allMembers = await _members.GetByGroupIdAsync(group.Id, ct);
 

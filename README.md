@@ -35,7 +35,13 @@ A group expense-splitting backend built with **ASP.NET Core 8** and **Clean Arch
     - [How it works](#how-it-works)
     - [Example](#example)
     - [Edge cases](#edge-cases)
-  - [Authentication \& Security](#authentication--security)
+  - [Security](#security)
+    - [Who can do what](#who-can-do-what)
+    - [Rate limits (per client IP)](#rate-limits-per-client-ip)
+    - [Size limits](#size-limits)
+    - [Response headers](#response-headers)
+    - [Errors and logs](#errors-and-logs)
+    - [Not covered](#not-covered)
   - [Error Handling](#error-handling)
   - [Response Conventions](#response-conventions)
   - [Running Tests](#running-tests)
@@ -187,6 +193,8 @@ All settings live in `src/FairShare.API/appsettings.Development.json` for local 
 
 > **Production:** set `Jwt__Key` to a random string of at least 32 characters. The API refuses to start with a missing, short or placeholder key. Never commit production secrets — use environment variables or a secrets manager.
 
+> **Limits:** rate limits (`RateLimit:*`) and group sizes (`Limits:*`) have defaults sized for a dozen friends and can be changed without code changes; see [Security](#security).
+
 > **Deploying:** see [DEPLOYMENT.md](DEPLOYMENT.md) for the free demo setup (Cloudflare Pages + Render + Neon), every environment variable, rate limits and the `/health` endpoint.
 
 ### Docker environment variables (`.env`)
@@ -271,6 +279,8 @@ DELETE  /api/groups/{guestToken}/members/{memberId}
 { "guestName": "Alice K." }
 ```
 
+Returns `409 Conflict` when the group already has the most people it can have (30 by default; see [Size limits](#size-limits)).
+
 **DELETE** — Removes a member. Returns `409 Conflict` if the member has any associated expense records.
 
 ---
@@ -297,6 +307,7 @@ DELETE  /api/groups/{guestToken}/expenses/{expenseId}
 }
 // Sum of payers[].amountPaid must equal totalAmount
 // Every payer and participant must be a member of the group (400 otherwise)
+// 409 when the group already has the most expenses it can have (1,000 by default)
 ```
 
 **PUT** — Update an expense. Every field is optional; omitted fields are kept (omitting `participantMemberIds` keeps the current participants). Splits are always recalculated. The payers must still sum to the total after the update: sending only `totalAmount` or only `payers` returns `400` (`errors.Payers`) if the result no longer balances.
@@ -468,10 +479,77 @@ Settlements:
 
 ---
 
-## Authentication & Security
+## Security
 
-| Concern | Detail |
+FairShare is built for a small circle of friends (about a dozen people) who share one group link
+each. There are no accounts in Phase 1: **anyone with a group's link can view and change that
+group**, and the API is public. The measures below are sized for that: generous enough that
+friends never notice them, even when they're all on one Wi-Fi network or phone hotspot (and so
+share one IP address), while capping what a leaked link or a script can do.
+
+### Who can do what
+
+| Concern | How it's handled |
 |---|---|
+| Finding a group | Group links use a random UUID (122 random bits), and no endpoint lists groups, so a link can't be guessed. |
+| Changing a group | Anyone holding its link. Deleting an expense is permanent, so share links only with the people in the group. |
+| Accounts (Phase 2) | JWT access tokens (15 minutes, `ClockSkew = Zero`; issuer, audience, lifetime and HMAC-SHA256 signature validated). Refresh tokens are 64 random bytes, valid 7 days, rotated on every use and stored only as a SHA-256 hash. Passwords use BCrypt (work factor 12). Logout clears the stored refresh token. |
+| Secrets | `Jwt__Key` must be at least 32 random characters; the API refuses to start with a missing, short or placeholder key. Production secrets live in environment variables, never in the repo. |
+
+### Rate limits (per client IP)
+
+| Limit | Default | Setting | Why this number |
+|---|---|---|---|
+| Reads | 300 a minute | `RateLimit:ReadsPerMinute` | A dozen friends on one network opening the group at once use a few dozen. |
+| Writes | 60 a minute | `RateLimit:WritesPerMinute` | Everyone adding the day's expenses at once. |
+| Writes | 1,000 a day | `RateLimit:WritesPerDay` | The guard on database growth: without it, 60 a minute would still allow 80,000+ a day. A busy day for the whole group is a few hundred. |
+| New groups | 10 an hour | `RateLimit:GroupsPerHour` | Friends make one group per trip. |
+
+Writes are POST, PUT, PATCH and DELETE, and refused requests count too. `/health` is never
+limited. Over a limit, the API answers `429` with a `Retry-After` header and a title people can
+read, e.g. *"Too many requests from this network. Try again in 25 minutes."* (the web app shows it
+as-is). Counts are kept in memory, which suits the single free instance; with several instances
+they'd need a shared store. The client IP comes from the hosting proxy's `X-Forwarded-For` (one
+trusted hop), so the API must only be reachable through that proxy.
+
+### Size limits
+
+| Limit | Default | Setting | Over the limit |
+|---|---|---|---|
+| Request body | 64 KB | fixed | `413` *"That request is too large."* The largest real request (an expense split between 30 people) is about 5 KB. |
+| People per group | 30 | `Limits:MembersPerGroup` (1 to 100) | `409` *"This group already has 30 people, the most a group can have."* |
+| Expenses per group | 1,000 | `Limits:ExpensesPerGroup` | `409` *"This group already has 1,000 expenses, the most a group can have. Start a new group for new expenses."* That's months of heavy use for a dozen people. |
+| Payers or participants in one expense | 100 | fixed ceiling | `400` on `Payers` / `ParticipantMemberIds`. Every ID must also belong to the group and appear only once. |
+| Text | Group name 100, person 80, expense title 150, currency 10 characters | fixed | `400` |
+
+Together these bound what one IP can store in a day (at most 1,000 writes of a few rows each)
+and keep every group small enough that its summary stays cheap to work out.
+
+### Response headers
+
+Every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+`Referrer-Policy: no-referrer` and `Content-Security-Policy: default-src 'none';
+frame-ancestors 'none'` (a JSON response can't load anything or be framed). `/api` responses add
+`Cache-Control: no-store`, so group data isn't left in browser or proxy caches. Outside
+Development the API sends HSTS on HTTPS requests, and it never sends a `Server` header. The
+dev-only API reference pages (Scalar, OpenAPI JSON) skip the content security policy so they
+load. The web app sets its own headers; see its README.
+
+### Errors and logs
+
+Unexpected errors return a generic `500` with a `traceId`; details and stack traces go only to the
+logs. Malformed or oversized requests get their own status (`400`, `413`) and are logged as
+warnings, not errors. CORS only allows the origins in `AllowedOrigins`.
+
+### Not covered
+
+- **Many IPs at once.** Every limit is per IP, so traffic spread over many addresses adds up. Put
+  the API behind Cloudflare (free) if that ever becomes a problem.
+- **Undo.** A deleted expense can't be recovered, and changes aren't attributed to anyone.
+- **Login attempts** share the general write limits; there's no per-account lockout yet.
+- **Logs** include request paths, and a group's path contains its link.
+
+---|---|
 | Access token | Signed JWT — 15-minute lifetime, `ClockSkew = Zero` |
 | Refresh token | 64-byte random string, 7-day lifetime, rotated on every use |
 | Refresh token storage | SHA-256 hex hash stored in DB; plain token sent to client only |
