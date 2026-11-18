@@ -20,6 +20,12 @@ public interface IGroupRepository
     /// <summary>Marks the context entry as modified so EF tracks changes.</summary>
     void Update(Group group);
 
+    /// <summary>
+    /// Permanently deletes a group and everything in it (people, expenses, payers and shares)
+    /// in one transaction. Returns <c>false</c> when no group has that token.
+    /// </summary>
+    Task<bool> DeleteByGuestTokenAsync(Guid guestToken, CancellationToken ct = default);
+
     /// <summary>Commits all pending changes to the database.</summary>
     Task SaveChangesAsync(CancellationToken ct = default);
 }

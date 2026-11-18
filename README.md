@@ -237,6 +237,7 @@ A **GuestToken** (UUID) is returned when you create a group and is used in every
 ```
 POST   /api/groups
 GET    /api/groups/{guestToken}
+DELETE /api/groups/{guestToken}
 ```
 
 **POST `/api/groups`** — Create a group
@@ -255,6 +256,8 @@ GET    /api/groups/{guestToken}
 ```
 
 **GET `/api/groups/{guestToken}`** — Full group detail including members and expenses.
+
+**DELETE `/api/groups/{guestToken}`** — Permanently deletes the group with all its people, expenses, payers and shares, in one transaction. Returns `204 No Content`, or `404` (title *"This group has already been deleted."*) when there's no group with that link. There is no undo and no soft delete; like every other change in Phase 1, anyone with the link can do it.
 
 ---
 
@@ -492,7 +495,7 @@ share one IP address), while capping what a leaked link or a script can do.
 | Concern | How it's handled |
 |---|---|
 | Finding a group | Group links use a random UUID (122 random bits), and no endpoint lists groups, so a link can't be guessed. |
-| Changing a group | Anyone holding its link. Deleting an expense is permanent, so share links only with the people in the group. |
+| Changing a group | Anyone holding its link, including deleting the whole group. Deleting a group or an expense is permanent, so share links only with the people in the group. The web app asks for a press-and-hold before deleting a group, but the API itself doesn't. |
 | Accounts (Phase 2) | JWT access tokens (15 minutes, `ClockSkew = Zero`; issuer, audience, lifetime and HMAC-SHA256 signature validated). Refresh tokens are 64 random bytes, valid 7 days, rotated on every use and stored only as a SHA-256 hash. Passwords use BCrypt (work factor 12). Logout clears the stored refresh token. |
 | Secrets | `Jwt__Key` must be at least 32 random characters; the API refuses to start with a missing, short or placeholder key. Production secrets live in environment variables, never in the repo. |
 
@@ -545,7 +548,7 @@ warnings, not errors. CORS only allows the origins in `AllowedOrigins`.
 
 - **Many IPs at once.** Every limit is per IP, so traffic spread over many addresses adds up. Put
   the API behind Cloudflare (free) if that ever becomes a problem.
-- **Undo.** A deleted expense can't be recovered, and changes aren't attributed to anyone.
+- **Undo.** A deleted group or expense can't be recovered, and changes aren't attributed to anyone.
 - **Login attempts** share the general write limits; there's no per-account lockout yet.
 - **Logs** include request paths, and a group's path contains its link.
 
