@@ -18,6 +18,9 @@ var port = Environment.GetEnvironmentVariable("PORT");
 if (!string.IsNullOrWhiteSpace(port))
     builder.WebHost.UseUrls($"http://+:{port}");
 
+// Don't announce the web server ("Server: Kestrel") to anyone probing the API.
+builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
+
 // ─── Serilog ────────────────────────────────────────────────────────────────
 builder.Host.UseSerilog((ctx, lc) =>
 {
@@ -138,6 +141,8 @@ builder.Services.AddRateLimiter(options =>
 var app = builder.Build();
 
 app.UseForwardedHeaders();
+// First after the forwarded headers, so error (500) and rate-limit (429) responses carry them too.
+app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();
 
 if (app.Environment.IsDevelopment())
@@ -150,7 +155,15 @@ if (app.Environment.IsDevelopment())
         options.OpenApiRoutePattern = "/openapi/{documentName}.json";
     });
 }
-else if (allowedOrigins.Length == 0)
+else
+{
+    // Tell browsers to only ever reach the API over HTTPS. The platform's edge terminates TLS;
+    // UseForwardedHeaders (above) makes the original https scheme visible here, and HSTS is
+    // only sent on HTTPS requests and never for localhost.
+    app.UseHsts();
+}
+
+if (!app.Environment.IsDevelopment() && allowedOrigins.Length == 0)
 {
     app.Logger.LogWarning(
         "AllowedOrigins is not set: browsers on other origins (the web app) can't call this API. " +
