@@ -20,6 +20,7 @@ public static class ApplicationServiceExtensions
         // Group use cases
         services.AddScoped<CreateGroupUseCase>();
         services.AddScoped<GetGroupUseCase>();
+        services.AddScoped<DeleteGroupUseCase>();
         services.AddScoped<AddMemberUseCase>();
         services.AddScoped<UpdateMemberUseCase>();
         services.AddScoped<DeleteMemberUseCase>();

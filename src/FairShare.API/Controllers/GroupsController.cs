@@ -16,15 +16,18 @@ public class GroupsController : ControllerBase
 {
     private readonly CreateGroupUseCase _createGroup;
     private readonly GetGroupUseCase _getGroup;
+    private readonly DeleteGroupUseCase _deleteGroup;
     private readonly IValidator<CreateGroupRequest> _createValidator;
 
     public GroupsController(
         CreateGroupUseCase createGroup,
         GetGroupUseCase getGroup,
+        DeleteGroupUseCase deleteGroup,
         IValidator<CreateGroupRequest> createValidator)
     {
         _createGroup      = createGroup;
         _getGroup         = getGroup;
+        _deleteGroup      = deleteGroup;
         _createValidator  = createValidator;
     }
 
@@ -68,6 +71,29 @@ public class GroupsController : ControllerBase
             return NotFound(ProblemFor("Group not found.", 404));
 
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Permanently deletes the group with all its people and expenses. Anyone with the group's
+    /// link can do this, and it can't be undone.
+    /// </summary>
+    /// <response code="204">Group deleted.</response>
+    /// <response code="404">Group not found (or already deleted).</response>
+    [HttpDelete("{guestToken:guid}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Delete([FromRoute] Guid guestToken, CancellationToken ct)
+    {
+        // The title is shown to people as-is: usually someone else deleted it first.
+        if (!await _deleteGroup.ExecuteAsync(guestToken, ct))
+            return NotFound(new ProblemDetails
+            {
+                Title  = "This group has already been deleted.",
+                Detail = "Group not found.",
+                Status = StatusCodes.Status404NotFound,
+            });
+
+        return NoContent();
     }
 
     private static ProblemDetails ProblemFor(string detail, int status) => new()

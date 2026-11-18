@@ -46,6 +46,39 @@ public class GroupRepository : IGroupRepository
     public void Update(Group group) => _db.Groups.Update(group);
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Rows are deleted children first rather than relying on cascades: people can't be deleted
+    /// while payer or share rows still point at them (those foreign keys are RESTRICT, which
+    /// Postgres checks row by row during a cascade).
+    /// </remarks>
+    public async Task<bool> DeleteByGuestTokenAsync(Guid guestToken, CancellationToken ct = default)
+    {
+        var groupId = await _db.Groups
+            .IgnoreQueryFilters()
+            .Where(g => g.GuestToken == guestToken)
+            .Select(g => (Guid?)g.Id)
+            .FirstOrDefaultAsync(ct);
+        if (groupId is not { } id) return false;
+
+        // The connection retries on transient failures, so the whole transaction is the unit
+        // that gets retried.
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await _db.Database.BeginTransactionAsync(ct);
+
+            await _db.ExpensePayers.Where(p => p.Expense.GroupId == id).ExecuteDeleteAsync(ct);
+            await _db.ExpenseSplits.Where(s => s.Expense.GroupId == id).ExecuteDeleteAsync(ct);
+            await _db.Expenses.Where(e => e.GroupId == id).ExecuteDeleteAsync(ct);
+            await _db.GroupMembers.Where(m => m.GroupId == id).ExecuteDeleteAsync(ct);
+            var deleted = await _db.Groups.IgnoreQueryFilters().Where(g => g.Id == id).ExecuteDeleteAsync(ct);
+
+            await tx.CommitAsync(ct);
+            return deleted > 0;
+        });
+    }
+
+    /// <inheritdoc/>
     public async Task SaveChangesAsync(CancellationToken ct = default)
         => await _db.SaveChangesAsync(ct);
 }
