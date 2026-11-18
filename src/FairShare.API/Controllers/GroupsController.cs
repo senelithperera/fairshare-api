@@ -3,6 +3,8 @@ using FairShare.Application.UseCases.Groups;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using FairShare.API.Extensions;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace FairShare.API.Controllers;
 
@@ -32,7 +34,9 @@ public class GroupsController : ControllerBase
     /// </summary>
     /// <response code="201">Group created successfully.</response>
     /// <response code="400">Validation error.</response>
+    /// <response code="429">Too many groups created from this network in the last hour.</response>
     [HttpPost]
+    [EnableRateLimiting(RateLimitingExtensions.GroupCreatePolicy)]
     [ProducesResponseType(typeof(CreateGroupResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Create(

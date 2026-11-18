@@ -38,10 +38,12 @@ public class ExpensesController : ControllerBase
     /// <response code="201">Expense created.</response>
     /// <response code="400">Validation error.</response>
     /// <response code="404">Group not found.</response>
+    /// <response code="409">The group already has the most expenses it can have.</response>
     [HttpPost]
     [ProducesResponseType(typeof(ExpenseResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Create(
         [FromRoute] Guid guestToken,
         [FromBody] CreateExpenseRequest request,
@@ -57,6 +59,7 @@ public class ExpensesController : ControllerBase
         {
             ExpenseResultStatus.Success               => StatusCode(StatusCodes.Status201Created, result.Expense),
             ExpenseResultStatus.NotFound              => NotFound(NotFoundProblem("Group not found.")),
+            ExpenseResultStatus.GroupFull             => Conflict(GroupFullProblem(_createExpense.Limits.MaxExpensesPerGroup)),
             ExpenseResultStatus.PayerNotInGroup       => PayerNotInGroupProblem(),
             ExpenseResultStatus.ParticipantNotInGroup => ParticipantNotInGroupProblem(),
             _ => StatusCode(500)
@@ -133,6 +136,13 @@ public class ExpensesController : ControllerBase
         {
             ["ParticipantMemberIds"] = ["Every participant must be a member of this group."]
         }));
+
+    // The title is shown to people as-is by the web app, so it says what happened in plain words.
+    private static ProblemDetails GroupFullProblem(int max) => new()
+    {
+        Title  = $"This group already has {max:N0} expenses, the most a group can have. Start a new group for new expenses.",
+        Status = StatusCodes.Status409Conflict
+    };
 
     private static ProblemDetails NotFoundProblem(string detail) => new()
     {

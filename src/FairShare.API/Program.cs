@@ -1,6 +1,7 @@
 using System.Net.Sockets;
-using System.Threading.RateLimiting;
+using FairShare.API.Extensions;
 using FairShare.API.Middleware;
+using FairShare.Application;
 using FairShare.Application.Extensions;
 using FairShare.Infrastructure.Extensions;
 using FairShare.Infrastructure.Persistence;
@@ -17,6 +18,15 @@ var builder = WebApplication.CreateBuilder(args);
 var port = Environment.GetEnvironmentVariable("PORT");
 if (!string.IsNullOrWhiteSpace(port))
     builder.WebHost.UseUrls($"http://+:{port}");
+
+// Don't announce the web server ("Server: Kestrel") to anyone probing the API, and
+// cap request bodies at 64 KB (the default is 30 MB). The largest real request, an expense
+// split between 30 people, is about 5 KB; anything bigger is refused before it's read.
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.AddServerHeader = false;
+    options.Limits.MaxRequestBodySize = 64 * 1024;
+});
 
 // ─── Serilog ────────────────────────────────────────────────────────────────
 builder.Host.UseSerilog((ctx, lc) =>
@@ -94,50 +104,21 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.ForwardLimit = 1;
 });
 
-// Per-IP rate limits, so a public demo link can't be used to flood the database.
-// Writes (create/update/delete) are limited more tightly than reads.
-var writesPerMinute = builder.Configuration.GetValue("RateLimit:WritesPerMinute", 30);
-var readsPerMinute  = builder.Configuration.GetValue("RateLimit:ReadsPerMinute", 120);
+// Per-IP rate limits (per minute, writes per day, and new groups per hour), sized for a dozen
+// friends who may all share one IP. See Extensions/RateLimitingExtensions.cs.
+builder.Services.AddFairShareRateLimiting(builder.Configuration);
 
-builder.Services.AddRateLimiter(options =>
-{
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.OnRejected = (context, ct) => new ValueTask(
-        context.HttpContext.Response.WriteAsJsonAsync(
-            new
-            {
-                type   = "https://tools.ietf.org/html/rfc6585#section-4",
-                title  = "Too many requests. Please wait a minute and try again.",
-                status = StatusCodes.Status429TooManyRequests,
-            },
-            options: (System.Text.Json.JsonSerializerOptions?)null,
-            contentType: "application/problem+json",
-            cancellationToken: ct));
-
-    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(http =>
-    {
-        if (http.Request.Path.StartsWithSegments("/health"))
-            return RateLimitPartition.GetNoLimiter("health");
-
-        var method  = http.Request.Method;
-        var isWrite = !(HttpMethods.IsGet(method) || HttpMethods.IsHead(method) || HttpMethods.IsOptions(method));
-        var ip      = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-
-        return RateLimitPartition.GetFixedWindowLimiter(
-            $"{ip}:{(isWrite ? "write" : "read")}",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = isWrite ? writesPerMinute : readsPerMinute,
-                Window      = TimeSpan.FromMinutes(1),
-                QueueLimit  = 0,
-            });
-    });
-});
+// How big one group may get (see GroupLimits).
+builder.Services.AddSingleton(GroupLimits.From(
+    builder.Configuration.GetValue<int?>("Limits:MembersPerGroup"),
+    builder.Configuration.GetValue<int?>("Limits:ExpensesPerGroup")));
 
 // ─── App ────────────────────────────────────────────────────────────────────
 var app = builder.Build();
 
 app.UseForwardedHeaders();
+// First after the forwarded headers, so error (500) and rate-limit (429) responses carry them too.
+app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();
 
 if (app.Environment.IsDevelopment())
@@ -150,7 +131,15 @@ if (app.Environment.IsDevelopment())
         options.OpenApiRoutePattern = "/openapi/{documentName}.json";
     });
 }
-else if (allowedOrigins.Length == 0)
+else
+{
+    // Tell browsers to only ever reach the API over HTTPS. The platform's edge terminates TLS;
+    // UseForwardedHeaders (above) makes the original https scheme visible here, and HSTS is
+    // only sent on HTTPS requests and never for localhost.
+    app.UseHsts();
+}
+
+if (!app.Environment.IsDevelopment() && allowedOrigins.Length == 0)
 {
     app.Logger.LogWarning(
         "AllowedOrigins is not set: browsers on other origins (the web app) can't call this API. " +

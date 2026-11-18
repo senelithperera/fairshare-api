@@ -11,6 +11,9 @@ public interface IExpenseRepository
     /// <summary>Returns all expenses for a group, including their payers.</summary>
     Task<IReadOnlyList<Expense>> GetByGroupIdAsync(Guid groupId, CancellationToken ct = default);
 
+    /// <summary>How many expenses the group has (for the per-group limit).</summary>
+    Task<int> CountByGroupIdAsync(Guid groupId, CancellationToken ct = default);
+
     /// <summary>Persists a new expense along with its payer and split records.</summary>
     Task AddAsync(Expense expense, CancellationToken ct = default);
 

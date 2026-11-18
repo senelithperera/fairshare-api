@@ -26,6 +26,9 @@ public interface IGroupMemberRepository
     /// </summary>
     Task<bool> HasExpensesAsync(Guid memberId, CancellationToken ct = default);
 
+    /// <summary>How many people the group has (for the per-group limit).</summary>
+    Task<int> CountByGroupIdAsync(Guid groupId, CancellationToken ct = default);
+
     /// <summary>Commits all pending changes to the database.</summary>
     Task SaveChangesAsync(CancellationToken ct = default);
 }

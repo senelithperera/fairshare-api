@@ -35,10 +35,12 @@ public class MembersController : ControllerBase
     /// <response code="201">Member added.</response>
     /// <response code="400">Validation error.</response>
     /// <response code="404">Group not found.</response>
+    /// <response code="409">The group already has the most people it can have.</response>
     [HttpPost]
     [ProducesResponseType(typeof(GroupMemberResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Add(
         [FromRoute] Guid guestToken,
         [FromBody] AddMemberRequest request,
@@ -49,10 +51,18 @@ public class MembersController : ControllerBase
             return ValidationProblem(new ValidationProblemDetails(validation.ToDictionary()));
 
         var result = await _addMember.ExecuteAsync(guestToken, request, ct);
-        if (result is null)
-            return NotFound(NotFoundProblem("Group not found."));
-
-        return StatusCode(StatusCodes.Status201Created, result);
+        return result.Status switch
+        {
+            AddMemberStatus.Success       => StatusCode(StatusCodes.Status201Created, result.Member),
+            AddMemberStatus.GroupNotFound => NotFound(NotFoundProblem("Group not found.")),
+            // The title is shown to people as-is by the web app.
+            AddMemberStatus.GroupFull     => Conflict(new ProblemDetails
+            {
+                Title  = $"This group already has {_addMember.Limits.MaxMembersPerGroup} people, the most a group can have.",
+                Status = StatusCodes.Status409Conflict
+            }),
+            _ => StatusCode(500)
+        };
     }
 
     /// <summary>Updates a guest member's name.</summary>
